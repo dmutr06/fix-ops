@@ -40,15 +40,12 @@ impl RepairOrder {
     }
 
     pub fn calculate_discount(&self) -> f64 {
-        // Volume-based discount on gross order cost
-        let gross_total = self.parts_cost + self.labor_cost;
-        if gross_total >= 300.0 {
-            30.0
-        } else if gross_total >= 150.0 {
-            15.0
-        } else {
-            0.0
-        }
+        let rate = match self.loyalty_tier {
+            LoyaltyTier::Standard => 0.0,
+            LoyaltyTier::Silver => 0.10,
+            LoyaltyTier::Gold => 0.20,
+        };
+        self.labor_cost * rate
     }
 
     pub fn calculate_total(&self) -> f64 {

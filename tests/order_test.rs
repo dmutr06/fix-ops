@@ -15,11 +15,11 @@ fn test_cancelled_order_charges_diagnostic_fee() {
 }
 
 #[test]
-fn test_order_volume_discount() {
-    let mut order = RepairOrder::new(4, "David Wallace", LoyaltyTier::Standard);
+fn test_loyalty_discount_applied_to_labor_only() {
+    let mut order = RepairOrder::new(3, "Bob Vance", LoyaltyTier::Silver);
     order.parts_cost = 100.0;
     order.labor_cost = 100.0;
-    // Gross = 200 -> 15.0 discount. Total = 185.0
-    assert_eq!(order.calculate_discount(), 15.0);
-    assert_eq!(order.calculate_total(), 185.0);
+    // Silver = 10% discount on labor ($100 * 0.10 = $10). Parts ($100) not discounted. Total = 190.
+    assert_eq!(order.calculate_discount(), 10.0);
+    assert_eq!(order.calculate_total(), 190.0);
 }
