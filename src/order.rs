@@ -40,8 +40,15 @@ impl RepairOrder {
     }
 
     pub fn calculate_discount(&self) -> f64 {
-        // Base implementation: flat zero discount
-        0.0
+        // Volume-based discount on gross order cost
+        let gross_total = self.parts_cost + self.labor_cost;
+        if gross_total >= 300.0 {
+            30.0
+        } else if gross_total >= 150.0 {
+            15.0
+        } else {
+            0.0
+        }
     }
 
     pub fn calculate_total(&self) -> f64 {
