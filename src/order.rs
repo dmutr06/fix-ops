@@ -40,8 +40,12 @@ impl RepairOrder {
     }
 
     pub fn calculate_discount(&self) -> f64 {
-        // Base implementation: flat zero discount
-        0.0
+        let rate = match self.loyalty_tier {
+            LoyaltyTier::Standard => 0.0,
+            LoyaltyTier::Silver => 0.10,
+            LoyaltyTier::Gold => 0.20,
+        };
+        self.labor_cost * rate
     }
 
     pub fn calculate_total(&self) -> f64 {
