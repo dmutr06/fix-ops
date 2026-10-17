@@ -1,7 +1,7 @@
 # SKED dialogue summary for SRS 1.0.0
 
 - **Source baseline:** `spec/concept.md` and `logs/git_gate.md` at `fad43ab`
-- **Session:** `fix-ops-lab2-srs`; 9 initial dialogue rounds plus focused post-synthesis clarification
+- **Session:** FixOps SRS discovery; 9 initial dialogue rounds plus focused post-synthesis clarification
 **Consensus:** Human-ended initial dialogue; 40 agreed knowledge entries, one deferred question, no contested entries. The initial K* and five-section structure were explicitly confirmed by the human; the focused clarifications were also answered by the human before baseline review.
 
 ## Initial frame and uncertainties

@@ -1,12 +1,12 @@
-# Software Requirements Specification: Computer Service Management System
+# Software Requirements Specification: FixOps
 
-- **Version:** 1.0.0
-- **Status:** Approved baseline (SPEC-GATE-01)
-**Source:** `spec/concept.md`, `logs/git_gate.md`, and the confirmed Lab 2 SKED consensus.
+- **Version:** 1.0.1
+- **Status:** Approved baseline 1.0.0 (SPEC-GATE-01), amended by human-approved [ADD-001](addenda/ADD-001-permissions.md) on 2026-10-15
+**Source:** `spec/concept.md`, `logs/git_gate.md`, and the confirmed specification-discovery consensus.
 
 ## 1. Purpose and scope
 
-This specification defines the first target release of an internal web system for a PC and electronics repair workshop. Its readers are the course reviewer and future implementers. The existing Rust program is a partial prototype; these requirements describe the target system and do not claim that the current code implements it.
+This specification defines the first target release of an internal web system for a PC and electronics repair workshop. Its readers are the product owner and future implementers. The existing Rust program is a partial prototype; these requirements describe the target system and do not claim that the current code implements it.
 
 The release covers client and device records, repair-order intake, diagnosis, estimates, recording client approval, repair work, pickup, and settlement. It does not include a customer portal, automated notifications, inventory management, payment-provider integrations, analytics, bulk or enterprise discounts, or automatic loyalty-tier progression based on spend. The last topic remains a deferred future decision.
 
@@ -16,9 +16,11 @@ Only staff use the internal web interface. Each staff member has an individual a
 
 | Role | Authorized responsibilities |
 |---|---|
-| Receptionist | Maintain clients and devices; receive orders; record client decisions, payments, and pickup. |
+| Receptionist | Maintain clients and devices; receive orders; record client decisions, payments, and pickup; cancel orders where the lifecycle permits it. |
 | Technician | Diagnose devices; prepare estimates; record parts, labor, and repair checks. |
-| Administrator | Manage staff accounts and loyalty tiers; correct repair orders. |
+| Administrator | Perform all Receptionist and Technician actions; manage staff accounts and loyalty tiers; correct any RepairOrder field while preserving business rules and audit history. |
+
+All roles, including Administrator, remain subject to the same business rules, validation and audit requirements. Administrator permissions cover all existing release actions, not a bypass of lifecycle or settlement guards.
 
 The interface shall provide the screens and actions needed for these responsibilities. It has no external integration in this release. The required record fields and domain terms are defined in [`glossary.md`](glossary.md).
 
@@ -37,6 +39,8 @@ The normal path is `Received → Diagnosing → InProgress → Ready → Complet
 | InProgress | Ready | Repair check recorded. |
 | InProgress | Cancelled | Work stops; incurred costs remain recorded. |
 | Ready | Completed | Receptionist recorded payment equal to the full settlement amount, payment time, and pickup. |
+
+Only Receptionist and Administrator may cancel an order; Technician cancellation is denied. The allowed source states and guards apply equally to Administrator.
 
 All other state transitions shall be rejected. The table defines business state behavior, not the present Rust prototype's permissive field assignment.
 
@@ -59,7 +63,7 @@ Each criterion is an observable condition for its requirement. Examples and edge
 | ID | Requirement | Acceptance criterion |
 |---|---|---|
 | REQ-F-001 | The system shall require an individual staff sign-in before exposing staff records or actions. | AC-F-001: An unauthenticated request cannot read or change a client, device, or order; a signed-in user can access permitted actions. |
-| REQ-F-002 | The system shall restrict staff actions according to the role table in §2. | AC-F-002: A user can perform each listed action for their role; a user without that responsibility is denied and no record changes. |
+| REQ-F-002 | The system shall restrict staff actions according to the role table in §2. | AC-F-002: A user can perform each listed action for their role; Administrator can also perform all Receptionist and Technician actions when their guards hold. A user without the responsibility is denied and no record changes. |
 | REQ-F-003 | A Receptionist shall create and update a Client with a name and phone number; email is optional. | AC-F-003: A record with name and phone is saved and can be reopened; missing either required value prevents saving. |
 | REQ-F-004 | A Receptionist shall create and update a Device with type, serial number, and reported symptoms. | AC-F-004: All three values persist and can be retrieved; missing any prevents saving. |
 | REQ-F-005 | A Receptionist shall create a RepairOrder linked to one Client and one Device, with a unique ticket number, assigned Technician, `Received` state, and itemized charge fields. | AC-F-005: Creation saves all required links and fields in `Received`; a duplicate ticket number or missing required link is rejected. |
@@ -71,11 +75,11 @@ Each criterion is an observable condition for its requirement. Examples and edge
 | REQ-F-011 | A Technician shall record a repair check before moving `InProgress → Ready`. | AC-F-011: A recorded check permits `Ready`; without one, the transition is rejected. |
 | REQ-F-012 | A Receptionist shall record the payment amount and time for a `Ready` order. | AC-F-012: Both values persist; a payment record missing either value is rejected. |
 | REQ-F-013 | A Receptionist shall record pickup and complete an order only after full payment and pickup have been recorded. | AC-F-013: A `Ready` order becomes `Completed` only when the recorded payment equals the full settlement amount and pickup is recorded; a short payment or missing pickup prevents completion. |
-| REQ-F-014 | The system shall enforce the transition table in §3.1 and allow cancellation only from its stated source states. | AC-F-014: Each listed transition succeeds when its guard holds; every other transition, including cancellation from `Ready` or `Completed`, is rejected. |
+| REQ-F-014 | The system shall enforce the transition table in §3.1 and allow only Receptionist or Administrator to cancel from its stated source states. | AC-F-014: Each listed transition succeeds for an authorized role when its guard holds; Technician cancellation and every other transition, including cancellation from `Ready` or `Completed`, are rejected. Administrator cannot bypass these guards. |
 | REQ-F-015 | The system shall calculate cancellation charges by the cancellation point in §3.2. | AC-F-015: The charge is $0 before saved findings, $30 after saved findings but before repair, or incurred costs after repair begins; the repair-stage charge has no extra diagnostic fee. |
 | REQ-F-016 | The system shall calculate the completed repair total with the Client's tier at final settlement, a labor-only discount, and the rounding rule in §3.2. | AC-F-016: At parts=$100 and labor=$100, totals are $200 Standard, $190 Silver, and $180 Gold; a Silver discount on $0.05 labor rounds from half a cent to $0.01; a tier change during an open order affects its later final settlement. |
 | REQ-F-017 | An Administrator shall set a Client's loyalty tier manually to Standard, Silver, or Gold. | AC-F-017: An authorized change persists; order spend alone does not change the tier. |
-| REQ-F-018 | An Administrator shall correct a RepairOrder while preserving an audit record of the change. | AC-F-018: A correction persists and its actor, time, affected field, previous value, and new value are retrievable in the audit log. |
+| REQ-F-018 | An Administrator shall correct any RepairOrder field, including on terminal orders, while preserving business constraints and the audit history. | AC-F-018: A valid correction persists and its actor, time, affected field, previous value, and new value are retrievable alongside prior audit entries. Corrections that violate required fields, relationships, uniqueness, pricing or lifecycle guards are rejected without changing the record; terminal states cannot be reopened. |
 | REQ-F-019 | An Administrator shall create, update, and disable individual staff accounts with an assigned role. | AC-F-019: The assigned role controls available actions; a disabled account cannot sign in. |
 
 ## 5. Nonfunctional requirements and acceptance criteria
@@ -227,8 +231,44 @@ When the visitor requests a client record or a repair order
 Then access is denied and no record contents are shown
 ```
 
+**BDD-018 — Authorized cancellation roles** (`REQ-F-002`, `REQ-F-014`, `REQ-NF-002`)
+
+```gherkin
+Scenario Outline: Cancellation by an authorized role
+Given a signed-in <role> and an order in <state> whose cancellation conditions hold
+When the staff member cancels the order
+Then the order becomes Cancelled and the baseline cancellation pricing applies
+
+Examples:
+  | role          | state      |
+  | Receptionist  | Received   |
+  | Receptionist  | Diagnosing |
+  | Receptionist  | InProgress |
+  | Administrator | Received   |
+  | Administrator | Diagnosing |
+  | Administrator | InProgress |
+```
+
+**BDD-019 — Technician cannot cancel** (`REQ-F-002`, `REQ-F-014`, `REQ-NF-002`)
+
+```gherkin
+Given a signed-in Technician and an order in a cancellation-eligible state
+When the Technician attempts to cancel the order
+Then the action is denied and the order remains unchanged
+```
+
+**BDD-020 — Administrator inherits staff actions** (`REQ-F-002`, `REQ-NF-002`)
+
+```gherkin
+Given a signed-in Administrator and valid data satisfying an action's business guards
+When the Administrator performs an action assigned to Receptionist or Technician
+Then the action succeeds and its required audit evidence identifies the Administrator
+```
+
+Administrator test coverage also repeats the negative approval, repair-check, payment and pickup guard scenarios and tests corrections on terminal records. Full authorization does not convert an invalid action into a valid one.
+
 ## 7. Constraints, open point, and baseline control
 
 The interface is staff-only and browser-based. Payment is recorded, not processed. This SRS does not prescribe a storage engine, framework, or API. Automatic progression of loyalty tiers from accumulated spend is deferred; no rule for it is implied by this baseline. Any later change to an approved requirement shall be recorded as an addendum that identifies affected requirement IDs and traceability links.
 
-The SPEC-GATE decision and baseline commit are recorded in `logs/spec_gate.md` after human review. This document is the target behavior; discrepancies with the current Rust prototype are implementation gaps, not exceptions to the requirements.
+The original SRS 1.0.0 SPEC-GATE decision and baseline commit are recorded in `logs/spec_gate.md`. SRS 1.0.1 incorporates the human-approved permission clarification in [ADD-001](addenda/ADD-001-permissions.md); it does not imply PLAN-GATE GO. This document is the target behavior; discrepancies with the current Rust prototype are implementation gaps, not exceptions to the requirements.

@@ -1,15 +1,15 @@
 # Domain glossary
 
-**Baseline:** Computer Service Management System SRS 1.0.0 candidate. These names are used consistently in requirements, scenarios, tickets, tests, and later documentation.
+**Baseline:** FixOps SRS 1.0.1: baseline 1.0.0 approved through SPEC-GATE-01, plus approved [ADD-001](addenda/ADD-001-permissions.md). These names are used consistently in requirements, scenarios, tickets, tests, and later documentation.
 
 | Term | Definition |
 |---|---|
 | Client | A customer whose device is received for service. The record has an identifier, name, phone number, optional email, and loyalty tier. |
 | Device | One serviced item linked to a Client. The record contains type (`Desktop`, `Laptop`, or `Server`), serial number, and client-reported symptoms. |
 | RepairOrder | A service transaction identified by a unique ticket number and linked to one Client, one Device, and an assigned Technician. It records status, estimate, incurred charges, approval, repair check, payment, and pickup. |
-| Receptionist | Staff role responsible for client and device records, intake, recording client decisions and payment, and pickup. |
+| Receptionist | Staff role responsible for client and device records, intake, recording client decisions and payment, pickup, and cancellation from permitted source states. |
 | Technician | Staff role responsible for diagnosis, estimates, repair work, incurred charges, and repair checks. |
-| Administrator | Staff role responsible for staff accounts, loyalty tiers, and repair-order corrections. |
+| Administrator | Staff role with every Receptionist and Technician permission, staff-account and loyalty management, and correction of any RepairOrder field. All business constraints and audit requirements still apply, including on terminal orders. |
 | Estimate | Itemized expected parts and labor charges prepared before the client decides whether repair may start. An estimate is not an incurred cost. |
 | Client decision | Approval or decline of the estimate, entered by staff together with the decision time. |
 | Used parts cost | Cost of parts actually used on a repair order; unlike an estimated cost, it contributes to settlement. It is never discounted. |

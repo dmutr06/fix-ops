@@ -3,7 +3,7 @@
 - **Date:** 2026-09-30
 - **Decision:** PASS; the human approved SRS baseline 1.0.0 after reviewing the updated SKED consensus, structure, and four Markdown artifacts.
 - **Baseline:** The Git commit containing this record and `spec/srs.md`, `spec/glossary.md`, `spec/traceability.md`, and `logs/sked_dialogue.md`.
-**Source baseline:** `fad43ab` (Lab 1 GIT-GATE).
+**Source baseline:** `fad43ab` (initial GIT-GATE).
 
 ## Independent specification review
 

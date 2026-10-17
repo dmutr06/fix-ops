@@ -26,6 +26,6 @@
 - Justification: strict compliance with the approved baseline specification. Change acceptance was determined by specification alignment, not commit author or timestamp.
 - Verified compilation and test pass via `cargo test` (3/3 passing).
 
-## Deferred Questions for Lab 2 (SRS Phase)
+## Questions Deferred to Specification Discovery
 - Should enterprise/bulk orders qualify for additional discounts beyond loyalty tiers?
 - Does total order spend accelerate loyalty tier progression?

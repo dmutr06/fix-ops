@@ -1,4 +1,4 @@
-# Concept: Computer Service Management System
+# Concept: FixOps
 
 ## Purpose
 A lightweight management system for PC and electronics repair workshops. Tracks repair intake, diagnosis, labor, parts, and order settlement.
