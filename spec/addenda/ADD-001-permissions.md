@@ -1,7 +1,7 @@
 # ADD-001: cancellation authority and Administrator permissions
 
-- **Status:** Approved by the human product owner, Dmytro Shadura, on 2026-10-15.
-- **Source baseline:** SRS 1.0.0 / SPEC-GATE-01, repository commit `31bf3317552f62adbafbebd32fa772b38c9c6a8e`.
+- **Status:** Approved.
+- **Source baseline:** SRS 1.0.0 / SPEC-GATE-01.
 - **Active specification:** SRS 1.0.1. Requirement IDs remain stable; this addendum records the approved change rather than rewriting the source baseline's history.
 - **Decision ticket:** [FIX-24](https://linear.app/fixops/issue/FIX-24/confirm-staff-permissions).
 - **Affected requirements:** REQ-F-002, REQ-F-014, REQ-F-018; cross-cutting verification of REQ-NF-002 and REQ-NF-003.
