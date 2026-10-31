@@ -1,0 +1,2056 @@
+openapi: 3.0.3
+info:
+  title: FixOps Workshop API
+  version: 1.0.2
+  description: >
+    Internal REST API contract for the FixOps PC and electronics repair workshop
+    (SRS 1.0.2, ADD-001, ADD-002). Monetary amounts are represented in whole USD
+    cents (`*_cents`).
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+servers:
+  - url: http://127.0.0.1:4010
+    description: Local Mock / Development API Server
+
+tags:
+  - name: Sessions
+    description: Staff authentication (REQ-F-001, REQ-F-019, REQ-NF-002)
+  - name: Staff
+    description: Staff account management by Administrator (REQ-F-019, REQ-F-002)
+  - name: Clients
+    description: Client records, search, and loyalty tiers (REQ-F-003, REQ-F-017, REQ-NF-001)
+  - name: Devices
+    description: Serviced device records and search (REQ-F-004, REQ-NF-001)
+  - name: RepairOrders
+    description: Repair order intake, diagnosis, estimate, repair, settlement, and corrections (REQ-F-005–REQ-F-018)
+  - name: AuditLogs
+    description: Change audit log retrieval (REQ-F-018, REQ-NF-003)
+
+security:
+  - bearerAuth: []
+
+paths:
+  /api/v1/sessions:
+    post:
+      tags: [Sessions]
+      operationId: createSession
+      summary: Sign in with an active staff account
+      security: []
+      x-requirements: [REQ-F-001, REQ-F-019, REQ-NF-002]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreateRequest'
+            examples:
+              validSignIn:
+                summary: Receptionist sign-in
+                value:
+                  username: "anna.recep"
+                  password: "correct-horse-battery-staple"
+      responses:
+        '201':
+          description: Signed-in staff session created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SessionResponse'
+              examples:
+                signedIn:
+                  value:
+                    token: "sess_recep_01"
+                    staff:
+                      id: 1
+                      username: "anna.recep"
+                      role: "Receptionist"
+                      enabled: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Invalid username or password (REQ-F-001)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                invalidCredentials:
+                  value:
+                    code: "UNAUTHENTICATED"
+                    message: "Invalid username or password"
+        '403':
+          description: Account is disabled (REQ-F-019)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                disabledAccount:
+                  value:
+                    code: "FORBIDDEN"
+                    message: "Staff account is disabled"
+                    details:
+                      username: "disabled.user"
+
+  /api/v1/staff:
+    get:
+      tags: [Staff]
+      operationId: listStaffAccounts
+      summary: List staff accounts
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-019, REQ-NF-002]
+      x-roles: [Administrator]
+      responses:
+        '200':
+          description: List of staff accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/StaffAccount'
+              examples:
+                staffList:
+                  value:
+                    - id: 1
+                      username: "anna.recep"
+                      role: "Receptionist"
+                      enabled: true
+                    - id: 2
+                      username: "max.tech"
+                      role: "Technician"
+                      enabled: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags: [Staff]
+      operationId: createStaffAccount
+      summary: Create an individual staff account with an assigned role
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-019, REQ-NF-002, REQ-NF-003]
+      x-roles: [Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffCreateRequest'
+            examples:
+              createTechnician:
+                value:
+                  username: "max.tech"
+                  password: "initial-password-123"
+                  role: "Technician"
+      responses:
+        '201':
+          description: Staff account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffAccount'
+              examples:
+                createdTech:
+                  value:
+                    id: 2
+                    username: "max.tech"
+                    role: "Technician"
+                    enabled: true
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: Duplicate staff username
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                duplicateUsername:
+                  value:
+                    code: "CONFLICT"
+                    message: "username already exists"
+                    details:
+                      username: "max.tech"
+
+  /api/v1/staff/{staffId}:
+    parameters:
+      - $ref: '#/components/parameters/StaffId'
+    patch:
+      tags: [Staff]
+      operationId: updateStaffAccount
+      summary: Update staff role or enable/disable account
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-019, REQ-NF-002, REQ-NF-003]
+      x-roles: [Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StaffUpdateRequest'
+            examples:
+              disableStaff:
+                value:
+                  enabled: false
+      responses:
+        '200':
+          description: Updated staff account
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffAccount'
+              examples:
+                disabledTech:
+                  value:
+                    id: 2
+                    username: "max.tech"
+                    role: "Technician"
+                    enabled: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/clients:
+    get:
+      tags: [Clients]
+      operationId: listClients
+      summary: Search or list client records
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-003, REQ-NF-001, REQ-NF-002]
+      x-roles: [Receptionist, Technician, Administrator]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: Optional case-insensitive filter on client name or phone
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Matching client records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Client'
+              examples:
+                clientList:
+                  value:
+                    - id: 10
+                      name: "Bob Vance"
+                      phone: "+1-555-0100"
+                      email: "bob@vance.org"
+                      loyalty_tier: "Standard"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Clients]
+      operationId: createClient
+      summary: Create a client record with name, phone, and optional email
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-003, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientCreateRequest'
+            examples:
+              validClient:
+                summary: BDD-001 valid client
+                value:
+                  name: "Bob Vance"
+                  phone: "+1-555-0100"
+                  email: "bob@vance.org"
+      responses:
+        '201':
+          description: Client record created with Standard loyalty tier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              examples:
+                createdClient:
+                  value:
+                    id: 10
+                    name: "Bob Vance"
+                    phone: "+1-555-0100"
+                    email: "bob@vance.org"
+                    loyalty_tier: "Standard"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /api/v1/clients/{clientId}:
+    parameters:
+      - $ref: '#/components/parameters/ClientId'
+    get:
+      tags: [Clients]
+      operationId: getClient
+      summary: Retrieve a client record
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-003, REQ-NF-001, REQ-NF-002]
+      x-roles: [Receptionist, Technician, Administrator]
+      responses:
+        '200':
+          description: Client record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              examples:
+                existingClient:
+                  value:
+                    id: 10
+                    name: "Bob Vance"
+                    phone: "+1-555-0100"
+                    email: "bob@vance.org"
+                    loyalty_tier: "Standard"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Clients]
+      operationId: updateClient
+      summary: Update client name, phone, or optional email
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-003, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientUpdateRequest'
+            examples:
+              updatePhone:
+                value:
+                  phone: "+1-555-0199"
+      responses:
+        '200':
+          description: Updated client record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              examples:
+                updatedClient:
+                  value:
+                    id: 10
+                    name: "Bob Vance"
+                    phone: "+1-555-0199"
+                    email: "bob@vance.org"
+                    loyalty_tier: "Standard"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/clients/{clientId}/loyalty-tier:
+    parameters:
+      - $ref: '#/components/parameters/ClientId'
+    put:
+      tags: [Clients]
+      operationId: setClientLoyaltyTier
+      summary: Set a client's loyalty tier manually (Administrator only)
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-016, REQ-F-017, REQ-NF-002, REQ-NF-003]
+      x-roles: [Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoyaltyTierUpdateRequest'
+            examples:
+              promoteToGold:
+                summary: BDD-015 promote client to Gold
+                value:
+                  loyalty_tier: "Gold"
+      responses:
+        '200':
+          description: Client with updated loyalty tier
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Client'
+              examples:
+                goldClient:
+                  value:
+                    id: 10
+                    name: "Bob Vance"
+                    phone: "+1-555-0100"
+                    email: "bob@vance.org"
+                    loyalty_tier: "Gold"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Non-administrator role denied (BDD-011)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                technicianDenied:
+                  summary: BDD-011 Technician denied loyalty tier change
+                  value:
+                    code: "FORBIDDEN"
+                    message: "Only Administrator may change a client's loyalty tier"
+                    details:
+                      required_role: "Administrator"
+                      actual_role: "Technician"
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/devices:
+    get:
+      tags: [Devices]
+      operationId: listDevices
+      summary: Search or list device records
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-004, REQ-NF-001, REQ-NF-002]
+      x-roles: [Receptionist, Technician, Administrator]
+      parameters:
+        - name: client_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: q
+          in: query
+          required: false
+          description: Optional filter on serial number
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Matching device records
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Device'
+              examples:
+                deviceList:
+                  value:
+                    - id: 20
+                      client_id: 10
+                      device_type: "Laptop"
+                      serial_number: "SN-THINKPAD-9001"
+                      reported_symptoms: "No power on AC adapter"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [Devices]
+      operationId: createDevice
+      summary: Create a serviced device linked to a client
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-004, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceCreateRequest'
+            examples:
+              validDevice:
+                summary: BDD-001 valid laptop device
+                value:
+                  client_id: 10
+                  device_type: "Laptop"
+                  serial_number: "SN-THINKPAD-9001"
+                  reported_symptoms: "No power on AC adapter"
+      responses:
+        '201':
+          description: Device record created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+              examples:
+                createdDevice:
+                  value:
+                    id: 20
+                    client_id: 10
+                    device_type: "Laptop"
+                    serial_number: "SN-THINKPAD-9001"
+                    reported_symptoms: "No power on AC adapter"
+        '400':
+          description: Missing required device fields (BDD-002)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingSerialNumber:
+                  summary: BDD-002 device without serial number
+                  value:
+                    code: "VALIDATION_ERROR"
+                    message: "serial_number is required and cannot be empty"
+                    details:
+                      field: "serial_number"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/devices/{deviceId}:
+    parameters:
+      - $ref: '#/components/parameters/DeviceId'
+    get:
+      tags: [Devices]
+      operationId: getDevice
+      summary: Retrieve a device record
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-004, REQ-NF-001, REQ-NF-002]
+      x-roles: [Receptionist, Technician, Administrator]
+      responses:
+        '200':
+          description: Device record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+              examples:
+                existingDevice:
+                  value:
+                    id: 20
+                    client_id: 10
+                    device_type: "Laptop"
+                    serial_number: "SN-THINKPAD-9001"
+                    reported_symptoms: "No power on AC adapter"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Devices]
+      operationId: updateDevice
+      summary: Update device type, serial number, or reported symptoms
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-004, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceUpdateRequest'
+            examples:
+              updateSymptoms:
+                value:
+                  reported_symptoms: "No power on AC adapter; battery LED blinks 3x"
+      responses:
+        '200':
+          description: Updated device record
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+              examples:
+                updatedDevice:
+                  value:
+                    id: 20
+                    client_id: 10
+                    device_type: "Laptop"
+                    serial_number: "SN-THINKPAD-9001"
+                    reported_symptoms: "No power on AC adapter; battery LED blinks 3x"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/orders:
+    get:
+      tags: [RepairOrders]
+      operationId: listRepairOrders
+      summary: List or filter repair orders
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-005, REQ-F-015, REQ-F-016, REQ-NF-001, REQ-NF-002]
+      x-roles: [Receptionist, Technician, Administrator]
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/OrderStatus'
+        - name: client_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: ticket_number
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Matching repair orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/RepairOrder'
+              examples:
+                orderList:
+                  value:
+                    - id: 100
+                      ticket_number: "FIX-2026-0001"
+                      client_id: 10
+                      device_id: 20
+                      assigned_technician_id: 2
+                      status: "Received"
+                      diagnostic_findings: null
+                      estimate: null
+                      client_decision: null
+                      used_parts_cents: 0
+                      completed_labor_cents: 0
+                      repair_checked: false
+                      labor_discount_cents: 0
+                      settlement_cents: 0
+                      payment: null
+                      pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags: [RepairOrders]
+      operationId: createRepairOrder
+      summary: Create a repair order in Received state
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-005, REQ-NF-001, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepairOrderCreateRequest'
+            examples:
+              validIntake:
+                summary: BDD-001 valid order intake
+                value:
+                  ticket_number: "FIX-2026-0001"
+                  client_id: 10
+                  device_id: 20
+                  assigned_technician_id: 2
+      responses:
+        '201':
+          description: RepairOrder created in Received state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                receivedOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Received"
+                    diagnostic_findings: null
+                    estimate: null
+                    client_decision: null
+                    used_parts_cents: 0
+                    completed_labor_cents: 0
+                    repair_checked: false
+                    labor_discount_cents: 0
+                    settlement_cents: 0
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Duplicate ticket number or invalid device/technician relationship (BDD-002)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                duplicateTicket:
+                  summary: BDD-002 duplicate ticket number rejected
+                  value:
+                    code: "CONFLICT"
+                    message: "ticket_number already exists"
+                    details:
+                      ticket_number: "FIX-2026-0001"
+
+  /api/v1/orders/{orderId}:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    get:
+      tags: [RepairOrders]
+      operationId: getRepairOrder
+      summary: Retrieve a repair order with current settlement calculation
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-005, REQ-F-015, REQ-F-016, REQ-NF-001, REQ-NF-002]
+      x-roles: [Receptionist, Technician, Administrator]
+      responses:
+        '200':
+          description: RepairOrder details and calculated settlement
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                openOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Received"
+                    diagnostic_findings: null
+                    estimate: null
+                    client_decision: null
+                    used_parts_cents: 0
+                    completed_labor_cents: 0
+                    repair_checked: false
+                    labor_discount_cents: 0
+                    settlement_cents: 0
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [RepairOrders]
+      operationId: correctRepairOrder
+      summary: Administrator correction of any RepairOrder field preserving business rules and audit
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-014, REQ-F-015, REQ-F-016, REQ-F-018, REQ-NF-002, REQ-NF-003]
+      x-roles: [Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepairOrderCorrectionRequest'
+            examples:
+              correctLaborCost:
+                summary: BDD-016 Administrator corrects completed labor charge
+                value:
+                  completed_labor_cents: 8000
+      responses:
+        '200':
+          description: Corrected RepairOrder
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                correctedOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Ready"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 10000
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-21T10:15:00Z"
+                    used_parts_cents: 10000
+                    completed_labor_cents: 8000
+                    repair_checked: true
+                    labor_discount_cents: 800
+                    settlement_cents: 17200
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Correction violates lifecycle, uniqueness, or guard constraints (REQ-F-018)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                reopenTerminalDenied:
+                  value:
+                    code: "GUARD_VIOLATION"
+                    message: "Terminal orders (Completed or Cancelled) cannot be reopened"
+                    details:
+                      current_status: "Completed"
+                      requested_status: "InProgress"
+
+  /api/v1/orders/{orderId}/diagnosis:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    put:
+      tags: [RepairOrders]
+      operationId: recordDiagnosis
+      summary: Move order from Received to Diagnosing and optionally save diagnostic findings
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-006, REQ-F-014, REQ-NF-002, REQ-NF-003]
+      x-roles: [Technician, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DiagnosisRequest'
+            examples:
+              saveFindings:
+                value:
+                  diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+      responses:
+        '200':
+          description: Order in Diagnosing state with optional findings saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                diagnosingOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Diagnosing"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate: null
+                    client_decision: null
+                    used_parts_cents: 0
+                    completed_labor_cents: 0
+                    repair_checked: false
+                    labor_discount_cents: 0
+                    settlement_cents: 0
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/orders/{orderId}/estimate:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    put:
+      tags: [RepairOrders]
+      operationId: recordEstimate
+      summary: Prepare itemized estimate after diagnostic findings are saved
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-007, REQ-NF-002, REQ-NF-003]
+      x-roles: [Technician, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Estimate'
+            examples:
+              standardEstimate:
+                value:
+                  parts_cents: 10000
+                  labor_cents: 10000
+      responses:
+        '200':
+          description: Order with saved estimate
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                estimatedOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Diagnosing"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 10000
+                    client_decision: null
+                    used_parts_cents: 0
+                    completed_labor_cents: 0
+                    repair_checked: false
+                    labor_discount_cents: 0
+                    settlement_cents: 0
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Diagnostic findings not yet saved or decision already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                findingsRequired:
+                  value:
+                    code: "GUARD_VIOLATION"
+                    message: "Diagnostic findings must be saved before preparing an estimate"
+
+  /api/v1/orders/{orderId}/decision:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    put:
+      tags: [RepairOrders]
+      operationId: recordClientDecision
+      summary: Record client's estimate approval or decline and its timestamp
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-008, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientDecision'
+            examples:
+              approveEstimate:
+                summary: BDD-003 client approves estimate
+                value:
+                  decision: "Approved"
+                  decided_at: "2026-10-21T10:15:00Z"
+      responses:
+        '200':
+          description: Order with recorded client decision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                approvedOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Diagnosing"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 10000
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-21T10:15:00Z"
+                    used_parts_cents: 0
+                    completed_labor_cents: 0
+                    repair_checked: false
+                    labor_discount_cents: 0
+                    settlement_cents: 0
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/orders/{orderId}/repair:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    put:
+      tags: [RepairOrders]
+      operationId: updateRepairWork
+      summary: Start repair (InProgress), record incurred parts/labor charges, record repair check, or mark Ready
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-009, REQ-F-010, REQ-F-011, REQ-F-014, REQ-F-016, REQ-NF-002, REQ-NF-003]
+      x-roles: [Technician, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RepairWorkUpdateRequest'
+            examples:
+              finishRepairWork:
+                summary: BDD-008 Silver client with $100 parts, $100 labor, and repair check
+                value:
+                  status: "Ready"
+                  used_parts_cents: 10000
+                  completed_labor_cents: 10000
+                  repair_checked: true
+      responses:
+        '200':
+          description: Updated repair order in InProgress or Ready state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                readyOrderSilver:
+                  summary: BDD-008 Silver order in Ready with $10 discount ($190 settlement)
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Ready"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 10000
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-21T10:15:00Z"
+                    used_parts_cents: 10000
+                    completed_labor_cents: 10000
+                    repair_checked: true
+                    labor_discount_cents: 1000
+                    settlement_cents: 19000
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Missing client approval for InProgress (BDD-004) or missing repair check for Ready (BDD-009)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unapprovedRepairDenied:
+                  summary: BDD-004 transition to InProgress rejected without client approval
+                  value:
+                    code: "GUARD_VIOLATION"
+                    message: "Cannot enter InProgress without recorded client approval on estimate"
+                    details:
+                      guard: "client_decision.Approved"
+                      current_status: "Diagnosing"
+                missingRepairCheckDenied:
+                  summary: BDD-009 transition to Ready rejected without repair check
+                  value:
+                    code: "GUARD_VIOLATION"
+                    message: "Cannot enter Ready without a recorded repair check"
+                    details:
+                      guard: "repair_checked"
+                      current_status: "InProgress"
+
+  /api/v1/orders/{orderId}/payment:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    put:
+      tags: [RepairOrders]
+      operationId: recordPayment
+      summary: Record payment amount in cents and timestamp for a Ready order
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-012, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentRecord'
+            examples:
+              fullPayment:
+                value:
+                  amount_cents: 19000
+                  paid_at: "2026-10-23T15:00:00Z"
+      responses:
+        '200':
+          description: Order with recorded payment
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                paidOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Ready"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 10000
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-21T10:15:00Z"
+                    used_parts_cents: 10000
+                    completed_labor_cents: 10000
+                    repair_checked: true
+                    labor_discount_cents: 1000
+                    settlement_cents: 19000
+                    payment:
+                      amount_cents: 19000
+                      paid_at: "2026-10-23T15:00:00Z"
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/orders/{orderId}/pickup:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    put:
+      tags: [RepairOrders]
+      operationId: recordPickup
+      summary: Record client device pickup timestamp for a Ready order
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-013, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PickupRecord'
+            examples:
+              validPickup:
+                value:
+                  picked_up_at: "2026-10-23T15:05:00Z"
+      responses:
+        '200':
+          description: Order in Ready state with recorded pickup
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                pickedUpReadyOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Ready"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 10000
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-21T10:15:00Z"
+                    used_parts_cents: 10000
+                    completed_labor_cents: 10000
+                    repair_checked: true
+                    labor_discount_cents: 1000
+                    settlement_cents: 19000
+                    payment:
+                      amount_cents: 19000
+                      paid_at: "2026-10-23T15:00:00Z"
+                    pickup:
+                      picked_up_at: "2026-10-23T15:05:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /api/v1/orders/{orderId}/complete:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      tags: [RepairOrders]
+      operationId: completeRepairOrder
+      summary: Complete a Ready order once full settlement payment and pickup are recorded
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-013, REQ-F-014, REQ-F-016, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      responses:
+        '200':
+          description: Order transitioned to Completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                completedOrder:
+                  value:
+                    id: 100
+                    ticket_number: "FIX-2026-0001"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Completed"
+                    diagnostic_findings: "Faulty USB-C power controller IC on mainboard"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 10000
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-21T10:15:00Z"
+                    used_parts_cents: 10000
+                    completed_labor_cents: 10000
+                    repair_checked: true
+                    labor_discount_cents: 1000
+                    settlement_cents: 19000
+                    payment:
+                      amount_cents: 19000
+                      paid_at: "2026-10-23T15:00:00Z"
+                    pickup:
+                      picked_up_at: "2026-10-23T15:05:00Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Missing pickup record (BDD-010) or short/missing payment (BDD-012)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingPickupDenied:
+                  summary: BDD-010 missing pickup prevents completion
+                  value:
+                    code: "GUARD_VIOLATION"
+                    message: "Cannot complete order without a recorded device pickup"
+                    details:
+                      guard: "pickup"
+                      current_status: "Ready"
+                shortPaymentDenied:
+                  summary: BDD-012 short payment prevents order completion
+                  value:
+                    code: "GUARD_VIOLATION"
+                    message: "Recorded payment (10000 cents) does not equal full settlement amount (19000 cents)"
+                    details:
+                      settlement_cents: 19000
+                      paid_cents: 10000
+
+  /api/v1/orders/{orderId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/OrderId'
+    post:
+      tags: [RepairOrders]
+      operationId: cancelRepairOrder
+      summary: Cancel an order from Received, Diagnosing, or InProgress and compute cancellation charge
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-014, REQ-F-015, REQ-F-016, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Administrator]
+      responses:
+        '200':
+          description: Order transitioned to Cancelled with stage-specific settlement amount
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RepairOrder'
+              examples:
+                cancelledBeforeFindings:
+                  summary: BDD-005 / BDD-013 cancelled before saved findings ($0)
+                  value:
+                    id: 101
+                    ticket_number: "FIX-2026-0002"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Cancelled"
+                    diagnostic_findings: null
+                    estimate: null
+                    client_decision: null
+                    used_parts_cents: 0
+                    completed_labor_cents: 0
+                    repair_checked: false
+                    labor_discount_cents: 0
+                    settlement_cents: 0
+                    payment: null
+                    pickup: null
+                cancelledAfterFindings:
+                  summary: BDD-006 cancelled in Diagnosing after saved findings ($30 diagnostic fee)
+                  value:
+                    id: 102
+                    ticket_number: "FIX-2026-0003"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Cancelled"
+                    diagnostic_findings: "Dead GPU core"
+                    estimate:
+                      parts_cents: 45000
+                      labor_cents: 10000
+                    client_decision:
+                      decision: "Declined"
+                      decided_at: "2026-10-21T12:00:00Z"
+                    used_parts_cents: 0
+                    completed_labor_cents: 0
+                    repair_checked: false
+                    labor_discount_cents: 0
+                    settlement_cents: 3000
+                    payment: null
+                    pickup: null
+                cancelledInProgressGold:
+                  summary: BDD-007 Gold client cancelled in InProgress ($100 parts + $50 labor - $10 discount = $140)
+                  value:
+                    id: 103
+                    ticket_number: "FIX-2026-0004"
+                    client_id: 10
+                    device_id: 20
+                    assigned_technician_id: 2
+                    status: "Cancelled"
+                    diagnostic_findings: "Mainboard VRM repair"
+                    estimate:
+                      parts_cents: 10000
+                      labor_cents: 8000
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-21T10:15:00Z"
+                    used_parts_cents: 10000
+                    completed_labor_cents: 5000
+                    repair_checked: false
+                    labor_discount_cents: 1000
+                    settlement_cents: 14000
+                    payment: null
+                    pickup: null
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Technician cannot cancel orders (BDD-019)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                technicianCancelDenied:
+                  summary: BDD-019 Technician cancellation rejected
+                  value:
+                    code: "FORBIDDEN"
+                    message: "Only Receptionist or Administrator may cancel a repair order"
+                    details:
+                      actual_role: "Technician"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Cancellation from Ready, Completed, or Cancelled is rejected (REQ-F-014)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                cancelFromReadyDenied:
+                  value:
+                    code: "GUARD_VIOLATION"
+                    message: "Order in Ready state cannot be cancelled"
+                    details:
+                      current_status: "Ready"
+
+  /api/v1/audit-logs:
+    get:
+      tags: [AuditLogs]
+      operationId: listAuditLogs
+      summary: Retrieve audit log entries filtered by record type or record ID
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-018, REQ-NF-002, REQ-NF-003]
+      x-roles: [Receptionist, Technician, Administrator]
+      parameters:
+        - name: record_type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/AuditRecordType'
+        - name: record_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Chronological audit entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditEntry'
+              examples:
+                orderCorrectionAudit:
+                  summary: BDD-016 audit log showing Administrator correction
+                  value:
+                    - id: 501
+                      actor_id: 3
+                      recorded_at: "2026-10-26T09:30:00Z"
+                      record_type: "RepairOrder"
+                      record_id: 100
+                      field: "completed_labor_cents"
+                      previous_value: "10000"
+                      new_value: "8000"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Individual staff session token issued by POST /sessions (REQ-F-001, REQ-NF-002)
+
+  parameters:
+    StaffId:
+      name: staffId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    ClientId:
+      name: clientId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    DeviceId:
+      name: deviceId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    OrderId:
+      name: orderId
+      in: path
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    BadRequest:
+      description: Validation error on request parameters or body (record remains unchanged)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            validationError:
+              value:
+                code: "VALIDATION_ERROR"
+                message: "Missing or invalid required field"
+                details:
+                  field: "phone"
+    Unauthorized:
+      description: Missing, invalid, or revoked staff session token (BDD-017, REQ-F-001)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            unauthenticated:
+              summary: BDD-017 visitor without staff sign-in is denied
+              value:
+                code: "UNAUTHENTICATED"
+                message: "Staff sign-in is required"
+    Forbidden:
+      description: Signed-in staff member lacks role permission for this operation (REQ-F-002, REQ-NF-002)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            roleForbidden:
+              value:
+                code: "FORBIDDEN"
+                message: "Role is not authorized to perform this action"
+    NotFound:
+      description: Requested resource was not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            notFound:
+              value:
+                code: "NOT_FOUND"
+                message: "Requested record does not exist"
+    Conflict:
+      description: Uniqueness conflict or domain lifecycle/pricing guard violation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            guardViolation:
+              value:
+                code: "GUARD_VIOLATION"
+                message: "Operation violates domain lifecycle or settlement guard"
+
+  schemas:
+    Role:
+      type: string
+      enum: [Receptionist, Technician, Administrator]
+
+    LoyaltyTier:
+      type: string
+      enum: [Standard, Silver, Gold]
+
+    DeviceType:
+      type: string
+      enum: [Desktop, Laptop, Server]
+
+    OrderStatus:
+      type: string
+      enum: [Received, Diagnosing, InProgress, Ready, Completed, Cancelled]
+
+    DecisionType:
+      type: string
+      enum: [Approved, Declined]
+
+    AuditRecordType:
+      type: string
+      enum: [StaffAccount, Client, Device, RepairOrder]
+
+    ErrorCode:
+      type: string
+      enum:
+        - UNAUTHENTICATED
+        - FORBIDDEN
+        - VALIDATION_ERROR
+        - NOT_FOUND
+        - CONFLICT
+        - GUARD_VIOLATION
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      additionalProperties: false
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+          minLength: 1
+        details:
+          type: object
+          additionalProperties: true
+
+    SessionCreateRequest:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 1
+
+    SessionResponse:
+      type: object
+      required: [token, staff]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          minLength: 1
+        staff:
+          $ref: '#/components/schemas/StaffAccount'
+
+    StaffAccount:
+      type: object
+      required: [id, username, role, enabled]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        username:
+          type: string
+          minLength: 1
+        role:
+          $ref: '#/components/schemas/Role'
+        enabled:
+          type: boolean
+
+    StaffCreateRequest:
+      type: object
+      required: [username, password, role]
+      additionalProperties: false
+      properties:
+        username:
+          type: string
+          minLength: 1
+        password:
+          type: string
+          minLength: 8
+        role:
+          $ref: '#/components/schemas/Role'
+
+    StaffUpdateRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        role:
+          $ref: '#/components/schemas/Role'
+        enabled:
+          type: boolean
+
+    Client:
+      type: object
+      required: [id, name, phone, loyalty_tier]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        name:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+          nullable: true
+        loyalty_tier:
+          $ref: '#/components/schemas/LoyaltyTier'
+
+    ClientCreateRequest:
+      type: object
+      required: [name, phone]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+          nullable: true
+
+    ClientUpdateRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+          minLength: 1
+        email:
+          type: string
+          format: email
+          nullable: true
+
+    LoyaltyTierUpdateRequest:
+      type: object
+      required: [loyalty_tier]
+      additionalProperties: false
+      properties:
+        loyalty_tier:
+          $ref: '#/components/schemas/LoyaltyTier'
+
+    Device:
+      type: object
+      required: [id, client_id, device_type, serial_number, reported_symptoms]
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        client_id:
+          type: integer
+          minimum: 1
+        device_type:
+          $ref: '#/components/schemas/DeviceType'
+        serial_number:
+          type: string
+          minLength: 1
+        reported_symptoms:
+          type: string
+          minLength: 1
+
+    DeviceCreateRequest:
+      type: object
+      required: [client_id, device_type, serial_number, reported_symptoms]
+      additionalProperties: false
+      properties:
+        client_id:
+          type: integer
+          minimum: 1
+        device_type:
+          $ref: '#/components/schemas/DeviceType'
+        serial_number:
+          type: string
+          minLength: 1
+        reported_symptoms:
+          type: string
+          minLength: 1
+
+    DeviceUpdateRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        device_type:
+          $ref: '#/components/schemas/DeviceType'
+        serial_number:
+          type: string
+          minLength: 1
+        reported_symptoms:
+          type: string
+          minLength: 1
+
+    Estimate:
+      type: object
+      required: [parts_cents, labor_cents]
+      additionalProperties: false
+      properties:
+        parts_cents:
+          type: integer
+          minimum: 0
+        labor_cents:
+          type: integer
+          minimum: 0
+
+    NullableEstimate:
+      type: object
+      nullable: true
+      required: [parts_cents, labor_cents]
+      additionalProperties: false
+      properties:
+        parts_cents:
+          type: integer
+          minimum: 0
+        labor_cents:
+          type: integer
+          minimum: 0
+
+    ClientDecision:
+      type: object
+      required: [decision, decided_at]
+      additionalProperties: false
+      properties:
+        decision:
+          $ref: '#/components/schemas/DecisionType'
+        decided_at:
+          type: string
+          format: date-time
+
+    NullableClientDecision:
+      type: object
+      nullable: true
+      required: [decision, decided_at]
+      additionalProperties: false
+      properties:
+        decision:
+          $ref: '#/components/schemas/DecisionType'
+        decided_at:
+          type: string
+          format: date-time
+
+    PaymentRecord:
+      type: object
+      required: [amount_cents, paid_at]
+      additionalProperties: false
+      properties:
+        amount_cents:
+          type: integer
+          minimum: 0
+        paid_at:
+          type: string
+          format: date-time
+
+    NullablePaymentRecord:
+      type: object
+      nullable: true
+      required: [amount_cents, paid_at]
+      additionalProperties: false
+      properties:
+        amount_cents:
+          type: integer
+          minimum: 0
+        paid_at:
+          type: string
+          format: date-time
+
+    PickupRecord:
+      type: object
+      required: [picked_up_at]
+      additionalProperties: false
+      properties:
+        picked_up_at:
+          type: string
+          format: date-time
+
+    NullablePickupRecord:
+      type: object
+      nullable: true
+      required: [picked_up_at]
+      additionalProperties: false
+      properties:
+        picked_up_at:
+          type: string
+          format: date-time
+
+    DiagnosisRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        diagnostic_findings:
+          type: string
+          minLength: 1
+          nullable: true
+
+    RepairWorkUpdateRequest:
+      type: object
+      required: [status]
+      additionalProperties: false
+      properties:
+        status:
+          type: string
+          enum: [InProgress, Ready]
+        used_parts_cents:
+          type: integer
+          minimum: 0
+        completed_labor_cents:
+          type: integer
+          minimum: 0
+        repair_checked:
+          type: boolean
+
+    RepairOrderCreateRequest:
+      type: object
+      required: [ticket_number, client_id, device_id, assigned_technician_id]
+      additionalProperties: false
+      properties:
+        ticket_number:
+          type: string
+          minLength: 1
+        client_id:
+          type: integer
+          minimum: 1
+        device_id:
+          type: integer
+          minimum: 1
+        assigned_technician_id:
+          type: integer
+          minimum: 1
+
+    RepairOrderCorrectionRequest:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        ticket_number:
+          type: string
+          minLength: 1
+        client_id:
+          type: integer
+          minimum: 1
+        device_id:
+          type: integer
+          minimum: 1
+        assigned_technician_id:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        diagnostic_findings:
+          type: string
+          minLength: 1
+          nullable: true
+        estimate:
+          $ref: '#/components/schemas/NullableEstimate'
+        client_decision:
+          $ref: '#/components/schemas/NullableClientDecision'
+        used_parts_cents:
+          type: integer
+          minimum: 0
+        completed_labor_cents:
+          type: integer
+          minimum: 0
+        repair_checked:
+          type: boolean
+        payment:
+          $ref: '#/components/schemas/NullablePaymentRecord'
+        pickup:
+          $ref: '#/components/schemas/NullablePickupRecord'
+
+    RepairOrder:
+      type: object
+      required:
+        - id
+        - ticket_number
+        - client_id
+        - device_id
+        - assigned_technician_id
+        - status
+        - used_parts_cents
+        - completed_labor_cents
+        - repair_checked
+        - labor_discount_cents
+        - settlement_cents
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        ticket_number:
+          type: string
+          minLength: 1
+        client_id:
+          type: integer
+          minimum: 1
+        device_id:
+          type: integer
+          minimum: 1
+        assigned_technician_id:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/OrderStatus'
+        diagnostic_findings:
+          type: string
+          nullable: true
+        estimate:
+          $ref: '#/components/schemas/NullableEstimate'
+        client_decision:
+          $ref: '#/components/schemas/NullableClientDecision'
+        used_parts_cents:
+          type: integer
+          minimum: 0
+        completed_labor_cents:
+          type: integer
+          minimum: 0
+        repair_checked:
+          type: boolean
+        labor_discount_cents:
+          type: integer
+          minimum: 0
+          readOnly: true
+        settlement_cents:
+          type: integer
+          minimum: 0
+          readOnly: true
+        payment:
+          $ref: '#/components/schemas/NullablePaymentRecord'
+        pickup:
+          $ref: '#/components/schemas/NullablePickupRecord'
+
+    AuditEntry:
+      type: object
+      required:
+        - id
+        - actor_id
+        - recorded_at
+        - record_type
+        - record_id
+        - field
+        - previous_value
+        - new_value
+      additionalProperties: false
+      properties:
+        id:
+          type: integer
+          minimum: 1
+        actor_id:
+          type: integer
+          minimum: 1
+        recorded_at:
+          type: string
+          format: date-time
+        record_type:
+          $ref: '#/components/schemas/AuditRecordType'
+        record_id:
+          type: integer
+          minimum: 1
+        field:
+          type: string
+          minLength: 1
+        previous_value:
+          type: string
+          nullable: true
+        new_value:
+          type: string
+          nullable: true

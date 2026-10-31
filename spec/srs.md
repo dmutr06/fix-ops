@@ -1,6 +1,6 @@
 # Software Requirements Specification: FixOps
 
-**Version:** 1.0.1 — baseline 1.0.0 plus [ADD-001](addenda/ADD-001-permissions.md).
+**Version:** 1.0.2 — baseline 1.0.0 plus [ADD-001](addenda/ADD-001-permissions.md) and [ADD-002](addenda/ADD-002-api-contract.md).
 
 ## 1. Purpose and scope
 
