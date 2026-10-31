@@ -3,7 +3,6 @@ use serde_json::json;
 use crate::{ADMIN, RECEP, TECH, req};
 
 #[test]
-#[ignore = "needs Prism on 127.0.0.1:4010"]
 fn p2_intake() {
     // BDD-001
     let client = req("POST", "/api/v1/clients")

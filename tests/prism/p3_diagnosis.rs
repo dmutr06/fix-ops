@@ -3,7 +3,6 @@ use serde_json::json;
 use crate::{ADMIN, RECEP, TECH, req};
 
 #[test]
-#[ignore = "needs Prism on 127.0.0.1:4010"]
 fn p3_diagnosis() {
     let findings =
         json!({ "diagnostic_findings": "Faulty USB-C power controller IC on mainboard" });

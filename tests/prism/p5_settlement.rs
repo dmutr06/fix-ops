@@ -3,7 +3,6 @@ use serde_json::json;
 use crate::{ADMIN, RECEP, req};
 
 #[test]
-#[ignore = "needs Prism on 127.0.0.1:4010"]
 fn p5_settlement() {
     // BDD-010: payment and pickup, then complete
     let order = req("PUT", "/api/v1/orders/100/payment")

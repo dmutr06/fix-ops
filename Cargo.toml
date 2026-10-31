@@ -10,6 +10,7 @@ path = "tests/api/mod.rs"
 [[test]]
 name = "prism"
 path = "tests/prism/mod.rs"
+test = false
 
 [dependencies]
 

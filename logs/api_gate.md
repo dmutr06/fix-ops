@@ -11,7 +11,7 @@ Per [`docs/workflow.md`](../docs/workflow.md#tickets), the agent prepares eviden
 | Node.js (`fnm`) | `v24.22.0` | `node --version` | Runtime for Redocly and Prism CLIs |
 | Redocly CLI | `2.72.1` | `npx --yes @redocly/cli@2.72.1 lint spec/openapi.yaml` | `0 errors, 0 warnings` (46 ms) |
 | Stoplight Prism CLI | `5.16.0` | `npx --yes @stoplight/prism-cli@5.16.0 mock spec/openapi.yaml -h 127.0.0.1 -p 4010` | Serves all 26 operations over HTTP |
-| Rust HTTP mock suite | `rustc 1.99.1` | `cargo test --offline --test prism -- --ignored --test-threads=1` | `6/6` suites passed (`39` HTTP checks, 0.08 s) |
+| Rust HTTP mock suite | `rustc 1.99.1` | `cargo test --offline --test prism` | `6/6` suites passed (`39` HTTP checks, 0.08 s) |
 | Supplementary offline checks | `openapiv3 2.2.0` | `cargo test --offline` | `3/3` unit (`src/order.rs`) + `7/7` contract (`tests/api/`) passed |
 
 ## Contract review and reconciliation findings
@@ -35,7 +35,7 @@ Per [`docs/workflow.md`](../docs/workflow.md#tickets), the agent prepares eviden
 | 7 | No internal implementation details leaked | PASS | Contract exposes domain resources and integer cents rather than prototype `f64` fields or storage/ORM internals. |
 | 8 | OpenAPI specification passes automatic validation | PASS | `@redocly/cli@2.72.1 lint spec/openapi.yaml` passes with 0 errors and 0 warnings; supplementary [`tests/api/contract.rs`](../tests/api/contract.rs) passes. |
 | 9 | Mock API runs directly from `spec/openapi.yaml` | PASS | `@stoplight/prism-cli@5.16.0` serves `spec/openapi.yaml` over `http://127.0.0.1:4010` with zero server code in `src/`. |
-| 10 | Positive and negative scenarios pass on Mock API | PASS | `cargo test --offline --test prism -- --ignored --test-threads=1` checks status codes, Prism validation results, and key response fields for all 39 HTTP requests; response shapes are covered by Redocly example validation. |
+| 10 | Positive and negative scenarios pass on Mock API | PASS | `cargo test --offline --test prism` checks status codes, Prism validation results, and key response fields for all 39 HTTP requests; response shapes are covered by Redocly example validation. |
 
 ## HTTP mock scenario results and limitations
 

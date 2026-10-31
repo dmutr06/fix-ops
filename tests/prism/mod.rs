@@ -1,5 +1,6 @@
 //! HTTP scenarios against a Prism mock of `spec/openapi.yaml`.
-//! Start it with `npx @stoplight/prism-cli@5.16.0 mock spec/openapi.yaml -h 127.0.0.1 -p 4010`.
+//! Start Prism with `npx @stoplight/prism-cli@5.16.0 mock spec/openapi.yaml -h 127.0.0.1 -p 4010`,
+//! then run `cargo test --test prism`. Plain `cargo test` skips this suite.
 
 mod p1_staff_access;
 mod p2_intake;

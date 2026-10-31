@@ -3,7 +3,6 @@ use serde_json::json;
 use crate::{ADMIN, req};
 
 #[test]
-#[ignore = "needs Prism on 127.0.0.1:4010"]
 fn p6_audit() {
     // BDD-016
     let order = req("PATCH", "/api/v1/orders/100")
