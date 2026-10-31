@@ -1,6 +1,6 @@
 use serde_json::json;
 
-use crate::{RECEP_TOKEN, TECH_TOKEN, mock};
+use crate::{ADMIN_TOKEN, RECEP_TOKEN, TECH_TOKEN, mock};
 
 #[test]
 fn p3_diagnosis_estimate_and_client_approval() {
@@ -10,6 +10,16 @@ fn p3_diagnosis_estimate_and_client_approval() {
     let res = m
         .request("PUT", "/api/v1/orders/100/diagnosis")
         .bearer(TECH_TOKEN)
+        .json(json!({
+            "diagnostic_findings": "Faulty USB-C power controller IC on mainboard"
+        }))
+        .send();
+    assert_eq!(res.status, 200);
+
+    // Positive: Administrator performs a Technician action (BDD-020, REQ-F-002)
+    let res = m
+        .request("PUT", "/api/v1/orders/100/diagnosis")
+        .bearer(ADMIN_TOKEN)
         .json(json!({
             "diagnostic_findings": "Faulty USB-C power controller IC on mainboard"
         }))

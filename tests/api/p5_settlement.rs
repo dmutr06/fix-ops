@@ -33,7 +33,7 @@ fn p5_settlement_cancellation_payment_and_pickup() {
     assert_eq!(res.status, 200);
     assert_eq!(res.body["status"], "Completed");
 
-    // Positive: stage-based cancellation charges ($0 before findings, $30 after findings, incurred costs in progress) (BDD-005..007, REQ-F-015)
+    // Positive: stage-based cancellation charges ($0 before findings, $30 after findings, incurred costs in progress) by Receptionist and Administrator (BDD-005..007, BDD-013, BDD-018, REQ-F-015)
     let res = m
         .request("POST", "/api/v1/orders/101/cancel")
         .bearer(RECEP_TOKEN)

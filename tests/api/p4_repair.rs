@@ -23,6 +23,22 @@ fn p4_repair_work_and_lifecycle_guards() {
     assert_eq!(res.body["labor_discount_cents"], 1000);
     assert_eq!(res.body["settlement_cents"], 19000);
 
+    // Positive: Silver discount on $0.05 labor rounds half a cent up to $0.01 (BDD-014, REQ-F-016)
+    let res = m
+        .request("PUT", "/api/v1/orders/104/repair")
+        .bearer(TECH_TOKEN)
+        .expect_contract_case(200, "readyOrderHalfCentSilver")
+        .json(json!({
+            "status": "Ready",
+            "used_parts_cents": 0,
+            "completed_labor_cents": 5,
+            "repair_checked": true
+        }))
+        .send();
+    assert_eq!(res.status, 200);
+    assert_eq!(res.body["labor_discount_cents"], 1);
+    assert_eq!(res.body["settlement_cents"], 4);
+
     // Negative: entering Ready without repair check is rejected with 409 (BDD-009, REQ-F-011, REQ-F-014)
     let res = m
         .request("PUT", "/api/v1/orders/100/repair")

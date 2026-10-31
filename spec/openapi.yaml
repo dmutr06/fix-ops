@@ -1067,6 +1067,29 @@ paths:
                     settlement_cents: 19000
                     payment: null
                     pickup: null
+                readyOrderHalfCentSilver:
+                  summary: BDD-014 Silver order with $0.05 labor; $0.005 discount rounds up to $0.01 ($0.04 settlement)
+                  value:
+                    id: 104
+                    ticket_number: "FIX-2026-0005"
+                    client_id: 11
+                    device_id: 21
+                    assigned_technician_id: 2
+                    status: "Ready"
+                    diagnostic_findings: "Loose fan connector"
+                    estimate:
+                      parts_cents: 0
+                      labor_cents: 5
+                    client_decision:
+                      decision: "Approved"
+                      decided_at: "2026-10-22T09:00:00Z"
+                    used_parts_cents: 0
+                    completed_labor_cents: 5
+                    repair_checked: true
+                    labor_discount_cents: 1
+                    settlement_cents: 4
+                    payment: null
+                    pickup: null
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1966,11 +1989,16 @@ components:
         - device_id
         - assigned_technician_id
         - status
+        - diagnostic_findings
+        - estimate
+        - client_decision
         - used_parts_cents
         - completed_labor_cents
         - repair_checked
         - labor_discount_cents
         - settlement_cents
+        - payment
+        - pickup
       additionalProperties: false
       properties:
         id:

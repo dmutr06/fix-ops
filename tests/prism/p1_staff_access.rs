@@ -1,86 +1,48 @@
 use serde_json::json;
 
-use crate::{
-    ADMIN_TOKEN, ErrorCode, ErrorResponse, MockMode, RECEP_TOKEN, Role, SessionResponse,
-    StaffAccount, http,
-};
+use crate::{ADMIN, RECEP, req};
 
 #[test]
-#[ignore = "requires running Prism HTTP mock on 127.0.0.1:4010"]
-fn p1_staff_access_http_scenarios() {
-    // [CONTRACT-DEFAULT] Active staff sign-in (REQ-F-001)
-    let session: SessionResponse = http("POST", "/api/v1/sessions", MockMode::ContractDefault)
-        .json(json!({
-            "username": "anna.recep",
-            "password": "correct-horse-battery-staple"
-        }))
-        .send_expect(201)
-        .json();
-    assert_eq!(session.token, RECEP_TOKEN);
-    assert_eq!(session.staff.role, Role::Receptionist);
-    assert!(session.staff.enabled);
+#[ignore = "needs Prism on 127.0.0.1:4010"]
+fn p1_staff_access() {
+    // REQ-F-001
+    let session = req("POST", "/api/v1/sessions")
+        .body(json!({ "username": "anna.recep", "password": "correct-horse-battery-staple" }))
+        .expect(201);
+    assert_eq!(session["token"], RECEP);
+    assert_eq!(session["staff"]["role"], "Receptionist");
 
-    // [CONTRACT-DEFAULT] Administrator creates and disables a staff account (REQ-F-019)
-    let created: StaffAccount = http("POST", "/api/v1/staff", MockMode::ContractDefault)
-        .bearer(ADMIN_TOKEN)
-        .json(json!({
-            "username": "max.tech",
-            "password": "initial-password-123",
-            "role": "Technician"
-        }))
-        .send_expect(201)
-        .json();
-    assert_eq!(created.role, Role::Technician);
-    assert!(created.enabled);
+    // REQ-F-019
+    let created = req("POST", "/api/v1/staff")
+        .token(ADMIN)
+        .body(json!({ "username": "max.tech", "password": "initial-password-123", "role": "Technician" }))
+        .expect(201);
+    assert_eq!(created["role"], "Technician");
 
-    let updated: StaffAccount = http("PATCH", "/api/v1/staff/2", MockMode::ContractDefault)
-        .bearer(ADMIN_TOKEN)
-        .json(json!({ "enabled": false }))
-        .send_expect(200)
-        .json();
-    assert!(!updated.enabled);
+    let disabled = req("PATCH", "/api/v1/staff/2")
+        .token(ADMIN)
+        .body(json!({ "enabled": false }))
+        .expect(200);
+    assert_eq!(disabled["enabled"], false);
 
-    let staff_list: Vec<StaffAccount> = http("GET", "/api/v1/staff", MockMode::ContractDefault)
-        .bearer(ADMIN_TOKEN)
-        .send_expect(200)
-        .json();
-    assert!(!staff_list.is_empty());
+    let staff = req("GET", "/api/v1/staff").token(ADMIN).expect(200);
+    assert!(!staff.as_array().unwrap().is_empty());
 
-    // [AUTO-VALIDATION] Unauthenticated request automatically rejected by Prism security check (BDD-017, REQ-F-001)
-    let err: ErrorResponse = http("GET", "/api/v1/orders/100", MockMode::AutoValidation)
-        .send_expect(401)
-        .json();
-    assert_eq!(err.code, ErrorCode::Unauthenticated);
+    // BDD-017
+    let err = req("GET", "/api/v1/orders/100").invalid().expect(401);
+    assert_eq!(err["code"], "UNAUTHENTICATED");
 
-    // [PREFER-EXAMPLE] Disabled account sign-in rejected with 403 (REQ-F-019)
-    let err: ErrorResponse = http(
-        "POST",
-        "/api/v1/sessions",
-        MockMode::PreferExample {
-            code: 403,
-            example: Some("disabledAccount"),
-        },
-    )
-    .json(json!({
-        "username": "disabled.user",
-        "password": "password123"
-    }))
-    .send_expect(403)
-    .json();
-    assert_eq!(err.code, ErrorCode::Forbidden);
-    assert_eq!(err.details.unwrap()["username"], "disabled.user");
+    // REQ-F-019: disabled account cannot sign in
+    let err = req("POST", "/api/v1/sessions")
+        .body(json!({ "username": "disabled.user", "password": "password123" }))
+        .prefer(403, "disabledAccount")
+        .expect(403);
+    assert_eq!(err["code"], "FORBIDDEN");
 
-    // [PREFER-EXAMPLE] Non-Administrator denied staff directory access (REQ-F-002, ADD-002)
-    let err: ErrorResponse = http(
-        "GET",
-        "/api/v1/staff",
-        MockMode::PreferExample {
-            code: 403,
-            example: None,
-        },
-    )
-    .bearer(RECEP_TOKEN)
-    .send_expect(403)
-    .json();
-    assert_eq!(err.code, ErrorCode::Forbidden);
+    // ADD-002: only Administrator sees staff accounts
+    let err = req("GET", "/api/v1/staff")
+        .token(RECEP)
+        .prefer(403, "roleForbidden")
+        .expect(403);
+    assert_eq!(err["code"], "FORBIDDEN");
 }
