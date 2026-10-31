@@ -12,7 +12,7 @@ Per [`docs/workflow.md`](../docs/workflow.md#tickets), the agent prepares eviden
 | Redocly CLI | `2.72.1` | `npx --yes @redocly/cli@2.72.1 lint spec/openapi.yaml` | `0 errors, 0 warnings` (46 ms) |
 | Stoplight Prism CLI | `5.16.0` | `npx --yes @stoplight/prism-cli@5.16.0 mock spec/openapi.yaml -h 127.0.0.1 -p 4010` | Serves all 26 operations over HTTP |
 | Rust HTTP mock suite | `rustc 1.99.1` | `cargo test --offline --test prism` | `6/6` suites passed (`39` HTTP checks, 0.08 s) |
-| Supplementary offline checks | `openapiv3 2.2.0` | `cargo test --offline` | `3/3` unit (`src/order.rs`) + `7/7` contract (`tests/api/`) passed |
+| Supplementary offline checks | `openapiv3 2.2.0` | `cargo test --offline` | `3/3` unit (`src/order.rs`) + `3/3` spec-to-SRS checks (`tests/contract.rs`) passed |
 
 ## Contract review and reconciliation findings
 
@@ -20,7 +20,7 @@ Per [`docs/workflow.md`](../docs/workflow.md#tickets), the agent prepares eviden
 2. **Search and read coverage (`REQ-F-003`–`005`, `REQ-NF-001`):** Added `GET /api/v1/clients`, `GET /api/v1/devices`, and `GET /api/v1/orders` and documented staff read/search rules in [`ADD-002`](../spec/addenda/ADD-002-api-contract.md).
 3. **Unapproved field removal (`REQ-F-018`):** Removed the invented `reason` field from `RepairOrderCorrectionRequest` so payloads strictly match [`srs.md`](../spec/srs.md) and [`glossary.md`](../spec/glossary.md); split `ClientCreateRequest` (`POST`) from `ClientUpdateRequest` (`PATCH`).
 4. **OpenAPI 3.0.3 schema fix:** Redocly CLI initially reported 8 `nullable-type-sibling` errors where `nullable: true` was paired with `allOf` `$ref` properties. Replaced with explicit `NullableEstimate`, `NullableClientDecision`, `NullablePaymentRecord`, and `NullablePickupRecord` object schemas (`type: object`, `nullable: true`), resolving all errors and example warnings.
-5. **Re-validation pass (`REQ-F-002`, `REQ-F-016`):** Independent re-run confirmed Redocly `0 errors`, Spectral `spectral:oas` `0 errors` (27 style warnings for missing `operation.description` / `info.contact`, non-blocking), and no Prism response violations. Closed coverage gaps: added `readyOrderHalfCentSilver` example and HTTP/offline checks for `BDD-014` (half-cent rounding); added Administrator `PUT /diagnosis` check for `BDD-020`; labelled Receptionist/Administrator cancellations as `BDD-013`/`BDD-018`. `RepairOrder` now lists `diagnostic_findings`, `estimate`, `client_decision`, `payment`, `pickup` as `required` (always present, `null` when absent), matching every example. Corrected the HTTP check count (previously recorded as 38; actual was 37, now 39).
+5. **Re-validation pass (`REQ-F-002`, `REQ-F-016`):** Independent re-run confirmed Redocly `0 errors`, Spectral `spectral:oas` `0 errors` (27 style warnings for missing `operation.description` / `info.contact`, non-blocking), and no Prism response violations. Closed coverage gaps: added `readyOrderHalfCentSilver` example and an HTTP check for `BDD-014` (half-cent rounding); added Administrator `PUT /diagnosis` check for `BDD-020`; labelled Receptionist/Administrator cancellations as `BDD-013`/`BDD-018`. `RepairOrder` now lists `diagnostic_findings`, `estimate`, `client_decision`, `payment`, `pickup` as `required` (always present, `null` when absent), matching every example. Corrected the HTTP check count (previously recorded as 38; actual was 37, now 39).
 
 ## Checklist
 
@@ -33,7 +33,7 @@ Per [`docs/workflow.md`](../docs/workflow.md#tickets), the agent prepares eviden
 | 5 | HTTP status codes and unified error model | PASS | `200`, `201`, `400`, `401`, `403`, `404`, `409`; all errors return `ErrorResponse` (`code`, `message`, optional `details`). |
 | 6 | Positive and negative scenarios are covered | PASS | 6 Rust HTTP test modules in [`tests/prism/`](../tests/prism/mod.rs) cover `P1`–`P6` positive flows and `400`/`401`/`403`/`404`/`409` negative flows. |
 | 7 | No internal implementation details leaked | PASS | Contract exposes domain resources and integer cents rather than prototype `f64` fields or storage/ORM internals. |
-| 8 | OpenAPI specification passes automatic validation | PASS | `@redocly/cli@2.72.1 lint spec/openapi.yaml` passes with 0 errors and 0 warnings; supplementary [`tests/api/contract.rs`](../tests/api/contract.rs) passes. |
+| 8 | OpenAPI specification passes automatic validation | PASS | `@redocly/cli@2.72.1 lint spec/openapi.yaml` passes with 0 errors and 0 warnings; supplementary [`tests/contract.rs`](../tests/contract.rs) passes. |
 | 9 | Mock API runs directly from `spec/openapi.yaml` | PASS | `@stoplight/prism-cli@5.16.0` serves `spec/openapi.yaml` over `http://127.0.0.1:4010` with zero server code in `src/`. |
 | 10 | Positive and negative scenarios pass on Mock API | PASS | `cargo test --offline --test prism` checks status codes, Prism validation results, and key response fields for all 39 HTTP requests; response shapes are covered by Redocly example validation. |
 
