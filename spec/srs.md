@@ -1,14 +1,12 @@
 # Software Requirements Specification: FixOps
 
-- **Version:** 1.0.1
-- **Status:** Approved baseline 1.0.0 (SPEC-GATE-01), amended by human-approved [ADD-001](addenda/ADD-001-permissions.md) on 2026-10-15
-**Source:** `spec/concept.md`, `logs/git_gate.md`, and the confirmed specification-discovery consensus.
+**Version:** 1.0.1 — baseline 1.0.0 plus [ADD-001](addenda/ADD-001-permissions.md).
 
 ## 1. Purpose and scope
 
-This specification defines the first target release of an internal web system for a PC and electronics repair workshop. Its readers are the product owner and future implementers. The existing Rust program is a partial prototype; these requirements describe the target system and do not claim that the current code implements it.
+The first release of an internal web system for a PC and electronics repair workshop. The existing Rust program is a partial prototype; gaps between it and this document are implementation work.
 
-The release covers client and device records, repair-order intake, diagnosis, estimates, recording client approval, repair work, pickup, and settlement. It does not include a customer portal, automated notifications, inventory management, payment-provider integrations, analytics, bulk or enterprise discounts, or automatic loyalty-tier progression based on spend. The last topic remains a deferred future decision.
+The release covers client and device records, repair-order intake, diagnosis, estimates, recording client approval, repair work, pickup, and settlement. It does not include a customer portal, automated notifications, inventory management, payment-provider integrations, analytics, bulk or enterprise discounts, or automatic loyalty-tier progression based on spend (deferred).
 
 ## 2. Actors, records, and interface
 
@@ -20,9 +18,7 @@ Only staff use the internal web interface. Each staff member has an individual a
 | Technician | Diagnose devices; prepare estimates; record parts, labor, and repair checks. |
 | Administrator | Perform all Receptionist and Technician actions; manage staff accounts and loyalty tiers; correct any RepairOrder field while preserving business rules and audit history. |
 
-All roles, including Administrator, remain subject to the same business rules, validation and audit requirements. Administrator permissions cover all existing release actions, not a bypass of lifecycle or settlement guards.
-
-The interface shall provide the screens and actions needed for these responsibilities. It has no external integration in this release. The required record fields and domain terms are defined in [`glossary.md`](glossary.md).
+Administrator is not a bypass: every role is subject to the same business rules, validation, and audit. The interface has no external integrations. Record fields and terms are defined in [`glossary.md`](glossary.md).
 
 ## 3. Domain rules
 
@@ -40,9 +36,7 @@ The normal path is `Received → Diagnosing → InProgress → Ready → Complet
 | InProgress | Cancelled | Work stops; incurred costs remain recorded. |
 | Ready | Completed | Receptionist recorded payment equal to the full settlement amount, payment time, and pickup. |
 
-Only Receptionist and Administrator may cancel an order; Technician cancellation is denied. The allowed source states and guards apply equally to Administrator.
-
-All other state transitions shall be rejected. The table defines business state behavior, not the present Rust prototype's permissive field assignment.
+Only Receptionist and Administrator may cancel. All other transitions are rejected.
 
 ### 3.2 Pricing
 
@@ -92,8 +86,6 @@ Each criterion is an observable condition for its requirement. Examples and edge
 | REQ-NF-004 | The system shall create a backup at least daily and support restoration within 24 hours. | AC-NF-004: A backup exists for each elapsed 24-hour period; in a restoration exercise, the backed-up records can be queried within 24 hours of starting recovery. |
 
 ## 6. BDD scenarios
-
-Scenario IDs are stable references for [`traceability.md`](traceability.md). `Given` describes the starting state, `When` the staff action, and `Then` the observable result.
 
 **BDD-001 — Intake with required records** (`REQ-F-003`–`005`)
 
@@ -265,10 +257,11 @@ When the Administrator performs an action assigned to Receptionist or Technician
 Then the action succeeds and its required audit evidence identifies the Administrator
 ```
 
-Administrator test coverage also repeats the negative approval, repair-check, payment and pickup guard scenarios and tests corrections on terminal records. Full authorization does not convert an invalid action into a valid one.
+Administrator tests also repeat the negative approval, repair-check, payment, and pickup scenarios and cover corrections on terminal records.
 
-## 7. Constraints, open point, and baseline control
+## 7. Constraints and change control
 
-The interface is staff-only and browser-based. Payment is recorded, not processed. This SRS does not prescribe a storage engine, framework, or API. Automatic progression of loyalty tiers from accumulated spend is deferred; no rule for it is implied by this baseline. Any later change to an approved requirement shall be recorded as an addendum that identifies affected requirement IDs and traceability links.
-
-The original SRS 1.0.0 SPEC-GATE decision and baseline commit are recorded in `logs/spec_gate.md`. SRS 1.0.1 incorporates the human-approved permission clarification in [ADD-001](addenda/ADD-001-permissions.md); it does not imply PLAN-GATE GO. This document is the target behavior; discrepancies with the current Rust prototype are implementation gaps, not exceptions to the requirements.
+- Staff-only, browser-based interface. Payment is recorded, not processed.
+- No storage engine, framework, or API is prescribed.
+- Automatic loyalty-tier progression is deferred; no rule for it is implied.
+- Changes to approved requirements are recorded as addenda in [`addenda/`](addenda/) naming the affected requirement IDs.
