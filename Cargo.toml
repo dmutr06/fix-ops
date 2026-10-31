@@ -3,4 +3,18 @@ name = "pis"
 version = "0.1.0"
 edition = "2024"
 
+[[test]]
+name = "api"
+path = "tests/api/mod.rs"
+
+[[test]]
+name = "prism"
+path = "tests/prism/mod.rs"
+
 [dependencies]
+
+[dev-dependencies]
+openapiv3 = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
