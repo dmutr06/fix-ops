@@ -1,6 +1,6 @@
 # API-GATE
 
-**Decision:** PENDING HUMAN REVIEW · **Recommendation:** GO · **Scope:** [SRS 1.0.2](../spec/srs.md) ([ADD-001](../spec/addenda/ADD-001-permissions.md), [ADD-002](../spec/addenda/ADD-002-api-contract.md)) · **Contract:** [`spec/openapi.yaml`](../spec/openapi.yaml)
+**Decision:** GO (Dmytro Shadura, 2026-11-03) · **Recommendation:** GO · **Scope:** [SRS 1.0.2](../spec/srs.md) ([ADD-001](../spec/addenda/ADD-001-permissions.md), [ADD-002](../spec/addenda/ADD-002-api-contract.md)) · **Contract:** [`spec/openapi.yaml`](../spec/openapi.yaml)
 
 Per [`docs/workflow.md`](../docs/workflow.md#tickets), the agent prepares evidence and a recommendation; the final `GO` / `REVISE` / `BLOCK` decision is reserved for human review. No production server code was added to `src/`.
 
@@ -47,5 +47,5 @@ Per [`docs/workflow.md`](../docs/workflow.md#tickets), the agent prepares eviden
 
 ## Human decision
 
-- [ ] **GO** — Approve `spec/openapi.yaml` and `ADD-002`; unblock TDD backend implementation (`P1`–`P6`).
+- [x] **GO** — Approve `spec/openapi.yaml` and `ADD-002`; unblock TDD backend implementation (`P1`–`P6`).
 - [ ] **REVISE** — Record required contract adjustments below and re-run validation + Prism scenarios.
