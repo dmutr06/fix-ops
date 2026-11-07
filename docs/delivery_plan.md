@@ -1,8 +1,8 @@
 # Delivery plan
 
-**Tracker:** [FixOps project](https://linear.app/fixops/project/fixops-965d39cb6a8a) (Linear, team FIX) · **Scope:** [SRS 1.0.1](../spec/srs.md) — 23 requirements, 20 BDD scenarios · **Status:** PLAN-GATE GO; implementation not started.
+**Tracker:** [FixOps project](https://linear.app/fixops/project/fixops-965d39cb6a8a) (Linear, team FIX) · **Scope:** [SRS 1.0.2](../spec/srs.md) — 23 requirements, 20 BDD scenarios · **Status:** P1 and P2 verified; ACCESS-GATE GO; P3 in progress.
 
-The current Rust code is a prototype. Its three tests do not cover the web system, persistence, permissions, audit, money rules, recovery, or performance. The SRS leaves framework, storage, and API open, so P1 starts with a platform review that sets the minimum web, identity, persistence, and audit approach. The schedule is re-estimated after that review.
+The service uses axum, Tokio and PostgreSQL. Platform choices are in [stack](stack.md) and [architecture](architecture.md). Staff access, audit logging and intake are implemented and verified; later packages follow the dependencies below. The original schedule is retained as the planning baseline, not a current forecast.
 
 ## Work packages
 
@@ -26,7 +26,7 @@ Control tickets:
 | [FIX-24](https://linear.app/fixops/issue/FIX-24) | Permission addendum ([ADD-001](../spec/addenda/ADD-001-permissions.md)) | Done |
 | [FIX-25](https://linear.app/fixops/issue/FIX-25) | Planning documents | Done |
 | [FIX-26](https://linear.app/fixops/issue/FIX-26) | PLAN-GATE | GO |
-| [FIX-48](https://linear.app/fixops/issue/FIX-48) | ACCESS-GATE: staff access verified | Open |
+| [FIX-48](https://linear.app/fixops/issue/FIX-48) | ACCESS-GATE: staff access verified | GO |
 | [FIX-49](https://linear.app/fixops/issue/FIX-49) | FINANCIAL-DATA-GATE: pricing, lifecycle, audit, performance, recovery verified | Open |
 | [FIX-50](https://linear.app/fixops/issue/FIX-50) | Human validation of the staff workflow | Open |
 | [FIX-51](https://linear.app/fixops/issue/FIX-51) | RELEASE-GATE | Open |

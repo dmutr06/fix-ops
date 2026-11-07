@@ -115,7 +115,7 @@ Creating an order checks, in this order: the ticket number and ids are valid (`4
 
 ### Concurrency
 
-Orders carry a `version` column. Each update is `UPDATE … WHERE id = $1 AND version = $2`, and zero updated rows returns `StoreError::Stale`. Two staff saving the same order at once cannot silently overwrite each other.
+Clients, devices and orders carry a `version` column. Each update is `UPDATE … WHERE id = $1 AND version = $2`, increments the version, and zero updated rows returns `StoreError::Stale`. Two staff saving the same record at once cannot silently overwrite each other. A stale write commits neither the record nor its audit rows.
 
 ## Sessions
 
