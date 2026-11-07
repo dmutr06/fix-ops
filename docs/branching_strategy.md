@@ -33,4 +33,4 @@ No ticket ids in commits; the branch carries them.
 
 - Title: `FIX-28: Staff access`, or `FIX-27, FIX-28: Staff access` for several tickets.
 - Body: a short overview, then the related tickets at the end.
-- CI (fmt, clippy, tests) must pass. PRs are squash-merged with a Conventional Commit title.
+- CI (fmt, clippy, tests) must pass. PRs are rebase-merged, so every commit (tests, gate record, feature, refactor) stays on `main` in order.
