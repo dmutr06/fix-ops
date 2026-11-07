@@ -6,7 +6,7 @@ All work is tracked in the [FixOps project](https://linear.app/fixops/project/fi
 
 Each ticket has one type label: `type:specification`, `type:addendum`, `type:test`, `type:feature`, `type:verification`, `type:validation`, `type:documentation`, or `type:gate`.
 
-A human owns and accepts every ticket. An agent may do the work, but it cannot accept work or make a gate decision. It can only record a decision the human has explicitly given.
+A human owns every ticket. Technical acceptance and gate decisions are delegated during implementation: record GO when the requirements, tests, review and verification evidence support it; otherwise record REVISE or BLOCK. Human review follows the implementation batch. A walkthrough performed by staff must still be recorded separately from technical verification.
 
 ## Lifecycle
 
@@ -84,7 +84,7 @@ Requirements, schedule, dependencies and risks accepted.
 Next: prepare the staff-access tests.
 ```
 
-An automated check never replaces a human gate decision.
+Passing automated checks alone does not justify GO: review conformance, actual outcomes and remaining limitations as well. Delegated technical approval does not claim that a human walkthrough has occurred.
 
 ## Definition of Ready and Done
 
