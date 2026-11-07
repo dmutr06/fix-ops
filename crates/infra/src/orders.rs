@@ -157,11 +157,12 @@ impl OrderStore for PgStore {
         changes: &[FieldChange],
     ) -> Result<(), StoreError> {
         let mut tx = self.pool().begin().await.map_err(store_error)?;
-        let result = sqlx::query("UPDATE repair_orders SET status = $3, diagnostic_findings = $4, estimate_parts_cents = $5, estimate_labor_cents = $6, client_decision = $7, client_decided_at = $8, version = version + 1 WHERE id = $1 AND version = $2")
+        let result = sqlx::query("UPDATE repair_orders SET status = $3, diagnostic_findings = $4, estimate_parts_cents = $5, estimate_labor_cents = $6, client_decision = $7, client_decided_at = $8, used_parts_cents = $9, completed_labor_cents = $10, repair_checked = $11, version = version + 1 WHERE id = $1 AND version = $2")
             .bind(order.id.0).bind(order.version).bind(order.status.as_str())
             .bind(order.diagnostic_findings.as_ref().map(DiagnosticFindings::as_str))
             .bind(order.estimate.map(|e| e.parts.get())).bind(order.estimate.map(|e| e.labor.get()))
             .bind(order.client_decision.map(|d| d.decision.as_str())).bind(order.client_decision.map(|d| d.decided_at))
+            .bind(order.used_parts.get()).bind(order.completed_labor.get()).bind(order.repair_checked)
             .execute(&mut *tx).await.map_err(store_error)?;
         if result.rows_affected() == 0 {
             return Err(StoreError::Stale);

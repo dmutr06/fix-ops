@@ -9,7 +9,8 @@ use fixops_app::orders::{OrderFilter, OrderIntake, OrderView};
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::money::Cents;
 use fixops_domain::order::{
-    ClientDecision, Decision, DiagnosticFindings, Estimate, OrderStatus, TicketNumber,
+    ClientDecision, Decision, DiagnosticFindings, Estimate, OrderStatus, RepairStage, RepairWork,
+    TicketNumber,
 };
 use fixops_domain::staff::Action;
 use serde::{Deserialize, Serialize};
@@ -27,6 +28,7 @@ pub fn routes() -> Router<AppState> {
         .route("/orders/{orderId}/diagnosis", put(diagnosis))
         .route("/orders/{orderId}/estimate", put(estimate))
         .route("/orders/{orderId}/decision", put(decision))
+        .route("/orders/{orderId}/repair", put(repair))
 }
 
 /// Contract `RepairOrder`. Every field is always present; unrecorded values are `null`.
@@ -270,6 +272,50 @@ async fn decision(
         state
             .app
             .record_decision(actor, OrderId(id), decision)
+            .await?
+            .into(),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RepairWorkRequest {
+    status: String,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    used_parts_cents: Option<i64>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    completed_labor_cents: Option<i64>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    repair_checked: Option<bool>,
+}
+
+async fn repair(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<RepairWorkRequest>, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::UpdateRepairWork)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
+    let work = RepairWork {
+        stage: RepairStage::parse(&body.status).map_err(AppError::from)?,
+        used_parts: body
+            .used_parts_cents
+            .map(|n| Cents::new("used_parts_cents", n))
+            .transpose()
+            .map_err(AppError::from)?,
+        completed_labor: body
+            .completed_labor_cents
+            .map(|n| Cents::new("completed_labor_cents", n))
+            .transpose()
+            .map_err(AppError::from)?,
+        repair_checked: body.repair_checked,
+    };
+    Ok(Json(
+        state
+            .app
+            .update_repair_work(actor, OrderId(id), work)
             .await?
             .into(),
     ))
