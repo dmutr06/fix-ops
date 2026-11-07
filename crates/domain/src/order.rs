@@ -419,10 +419,23 @@ impl RepairOrder {
         };
         order.validate_correction_stage(stage)?;
         order.normalize_correction_times()?;
-        // Reuse settlement guards and pricing with a nonterminal copy; stored snapshots must
-        // not conceal a corrected charge or a new tier when validating full payment.
+        // Keep the terminal snapshot only when the inputs for its stage are unchanged.
         let mut pricing = order.clone();
-        pricing.final_settlement = None;
+        let same_pricing = self.status == order.status
+            && match stage {
+                OrderStatus::Received => true,
+                OrderStatus::Diagnosing => {
+                    self.diagnostic_findings.is_some() == order.diagnostic_findings.is_some()
+                }
+                _ => {
+                    self.client_id == order.client_id
+                        && self.used_parts == order.used_parts
+                        && self.completed_labor == order.completed_labor
+                }
+            };
+        if !same_pricing {
+            pricing.final_settlement = None;
+        }
         if order.status == OrderStatus::Cancelled {
             pricing.status = stage;
             order.final_settlement = pricing.cancel(tier)?.0.final_settlement;
