@@ -5,12 +5,12 @@ use std::fmt;
 use time::{OffsetDateTime, UtcOffset};
 
 use crate::audit::FieldChange;
-use crate::client::Client;
+use crate::client::{Client, LoyaltyTier};
 use crate::device::Device;
 use crate::error::{InvalidField, required_text};
 use crate::id::{ClientId, DeviceId, OrderId, StaffId};
 use crate::money::Cents;
-use crate::pricing::Settlement;
+use crate::pricing::{Settlement, current_settlement};
 use crate::staff::{Role, StaffAccount};
 
 /// Lifecycle state from SRS §3.1.
@@ -212,6 +212,8 @@ pub struct RepairOrder {
     pub picked_up_at: Option<OffsetDateTime>,
     /// The settlement fixed when the order reached `Completed` or `Cancelled`; `None` while open.
     pub final_settlement: Option<Settlement>,
+    /// Source state retained for pricing future corrections of a cancelled order.
+    pub cancelled_from: Option<OrderStatus>,
     /// Optimistic concurrency token, increased by every saved change.
     pub version: i64,
 }
@@ -279,6 +281,16 @@ pub enum GuardViolation {
     ChargesOverflow,
     #[error("Decision time cannot be represented as RFC 3339")]
     InvalidDecisionTime,
+    #[error("Payment or pickup time cannot be represented as RFC 3339")]
+    InvalidSettlementTime,
+    #[error("Cannot complete order without a recorded full payment")]
+    PaymentMissing,
+    #[error(
+        "Recorded payment ({paid} cents) does not equal full settlement amount ({total} cents)"
+    )]
+    PaymentMismatch { paid: Cents, total: Cents },
+    #[error("Cannot complete order without a recorded device pickup")]
+    PickupMissing,
 }
 
 impl GuardViolation {
@@ -287,6 +299,8 @@ impl GuardViolation {
         match self {
             Self::ApprovalMissing => Some("client_decision.Approved"),
             Self::RepairCheckMissing => Some("repair_checked"),
+            Self::PaymentMissing => Some("payment"),
+            Self::PickupMissing => Some("pickup"),
             _ => None,
         }
     }
@@ -304,6 +318,109 @@ impl GuardViolation {
 pub type Changed = (RepairOrder, Vec<FieldChange>);
 
 impl RepairOrder {
+    /// Records or replaces the payment on a Ready order (REQ-F-012).
+    pub fn record_payment(&self, payment: Payment) -> Result<Changed, GuardViolation> {
+        self.require_ready()?;
+        let (paid_at, timestamp) = settlement_time(payment.paid_at)?;
+        let payment = Payment { paid_at, ..payment };
+        let previous_time = self
+            .payment
+            .map(|p| settlement_time(p.paid_at).map(|(_, s)| s))
+            .transpose()?;
+        let mut changes = Vec::new();
+        changes.extend(FieldChange::diff_optional(
+            "payment.amount_cents",
+            self.payment.as_ref().map(|p| &p.amount),
+            Some(&payment.amount),
+        ));
+        changes.extend(FieldChange::diff_optional(
+            "payment.paid_at",
+            previous_time.as_ref(),
+            Some(&timestamp),
+        ));
+        let mut order = self.clone();
+        order.payment = Some(payment);
+        Ok((order, changes))
+    }
+
+    /// Records pickup independently of payment on a Ready order (REQ-F-013).
+    pub fn record_pickup(&self, picked_up_at: OffsetDateTime) -> Result<Changed, GuardViolation> {
+        self.require_ready()?;
+        let (picked_up_at, timestamp) = settlement_time(picked_up_at)?;
+        let previous = self
+            .picked_up_at
+            .map(|t| settlement_time(t).map(|(_, s)| s))
+            .transpose()?;
+        let changes =
+            FieldChange::diff_optional("pickup.picked_up_at", previous.as_ref(), Some(&timestamp))
+                .into_iter()
+                .collect();
+        let mut order = self.clone();
+        order.picked_up_at = Some(picked_up_at);
+        Ok((order, changes))
+    }
+
+    /// Freezes the current settlement after exact payment and pickup (REQ-F-013, 016).
+    pub fn complete(&self, tier: LoyaltyTier) -> Result<Changed, GuardViolation> {
+        self.status.check_move(OrderStatus::Completed)?;
+        let settlement = current_settlement(self, tier);
+        let payment = self.payment.ok_or(GuardViolation::PaymentMissing)?;
+        if payment.amount != settlement.total {
+            return Err(GuardViolation::PaymentMismatch {
+                paid: payment.amount,
+                total: settlement.total,
+            });
+        }
+        if self.picked_up_at.is_none() {
+            return Err(GuardViolation::PickupMissing);
+        }
+        Ok(self.finalize(OrderStatus::Completed, settlement))
+    }
+
+    /// Cancels from the three eligible source states, preserving the pricing stage.
+    pub fn cancel(&self, tier: LoyaltyTier) -> Result<Changed, GuardViolation> {
+        self.status.check_move(OrderStatus::Cancelled)?;
+        let settlement = match self.status {
+            OrderStatus::Diagnosing if self.diagnostic_findings.is_some() => Settlement {
+                labor_discount: Cents::ZERO,
+                total: Cents::new("settlement_cents", 3000)
+                    .map_err(|_| GuardViolation::ChargesOverflow)?,
+            },
+            _ => current_settlement(self, tier),
+        };
+        Ok(self.finalize(OrderStatus::Cancelled, settlement))
+    }
+
+    fn require_ready(&self) -> Result<(), GuardViolation> {
+        if self.status != OrderStatus::Ready {
+            return Err(GuardViolation::Status {
+                status: self.status,
+                expected: OrderStatus::Ready,
+            });
+        }
+        Ok(())
+    }
+
+    fn finalize(&self, status: OrderStatus, settlement: Settlement) -> Changed {
+        let mut order = self.clone();
+        order.status = status;
+        order.final_settlement = Some(settlement);
+        if status == OrderStatus::Cancelled {
+            order.cancelled_from = Some(self.status);
+        }
+        // The final amounts are newly stored snapshots; open totals were derived only.
+        let changes = vec![
+            FieldChange::new(
+                "status",
+                Some(self.status.to_string()),
+                Some(status.to_string()),
+            ),
+            FieldChange::created("labor_discount_cents", settlement.labor_discount),
+            FieldChange::created("settlement_cents", settlement.total),
+        ];
+        (order, changes)
+    }
+
     /// Starts diagnosis on a `Received` order and saves `findings` when given (REQ-F-006).
     /// While `Diagnosing` and before a client decision, findings can be saved or revised.
     /// `None` keeps what is saved.
@@ -462,6 +579,15 @@ impl RepairOrder {
     }
 }
 
+/// Match PostgreSQL precision before returning or auditing a recorded timestamp.
+fn settlement_time(value: OffsetDateTime) -> Result<(OffsetDateTime, String), GuardViolation> {
+    let value = value.to_offset(UtcOffset::UTC).truncate_to_microsecond();
+    let text = value
+        .format(&time::format_description::well_known::Rfc3339)
+        .map_err(|_| GuardViolation::InvalidSettlementTime)?;
+    Ok((value, text))
+}
+
 /// Why an intake was refused although every linked record exists.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum IntakeError {
@@ -563,6 +689,7 @@ pub(crate) mod tests {
             payment: None,
             picked_up_at: None,
             final_settlement: None,
+            cancelled_from: None,
             version: 1,
         }
     }

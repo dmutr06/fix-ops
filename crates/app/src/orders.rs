@@ -5,7 +5,7 @@ use fixops_domain::client::LoyaltyTier;
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::order::{
     ClientDecision, DiagnosticFindings, Estimate, GuardViolation, NewRepairOrder, OrderStatus,
-    RepairOrder, RepairWork, TicketNumber,
+    Payment, RepairOrder, RepairWork, TicketNumber,
 };
 use fixops_domain::pricing::{Settlement, current_settlement};
 use fixops_domain::staff::{Action, Actor};
@@ -63,6 +63,16 @@ pub trait OrderStore: Send + Sync {
         &self,
         actor: StaffId,
         order: &RepairOrder,
+        changes: &[FieldChange],
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
+    /// Saves a terminal snapshot and its audit atomically, checking the order version and
+    /// locking the client at `client_version` until commit so its tier cannot change mid-save.
+    fn settle_order(
+        &self,
+        actor: StaffId,
+        order: &RepairOrder,
+        client_version: i64,
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
@@ -182,6 +192,81 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(view)
     }
 
+    pub async fn record_payment(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        payment: Payment,
+    ) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::RecordPayment)?;
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let (order, changes) = current.record_payment(payment).map_err(guard)?;
+        let view = self.view_order(order).await?;
+        self.save_order(actor, &view.order, &changes).await?;
+        Ok(view)
+    }
+
+    pub async fn record_pickup(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        picked_up_at: time::OffsetDateTime,
+    ) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::RecordPickup)?;
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let (order, changes) = current.record_pickup(picked_up_at).map_err(guard)?;
+        let view = self.view_order(order).await?;
+        self.save_order(actor, &view.order, &changes).await?;
+        Ok(view)
+    }
+
+    pub async fn complete_order(&self, actor: Actor, id: OrderId) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::CompleteRepairOrder)?;
+        self.settle_order(actor, id, OrderStatus::Completed).await
+    }
+
+    pub async fn cancel_order(&self, actor: Actor, id: OrderId) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::CancelRepairOrder)?;
+        self.settle_order(actor, id, OrderStatus::Cancelled).await
+    }
+
+    async fn settle_order(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        target: OrderStatus,
+    ) -> AppResult<OrderView> {
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let (client, version) = self
+            .store
+            .find_client_with_version(current.client_id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let result = if target == OrderStatus::Completed {
+            current.complete(client.loyalty_tier)
+        } else {
+            current.cancel(client.loyalty_tier)
+        };
+        let (order, changes) =
+            result.map_err(|e| guard(e).with("current_status", current.status))?;
+        self.store
+            .settle_order(actor.id, &order, version, &changes)
+            .await?;
+        Ok(order.into())
+    }
+
     async fn view_order(&self, order: RepairOrder) -> AppResult<OrderView> {
         let client = self
             .store
@@ -231,5 +316,14 @@ fn missing_link(field: &'static str) -> AppError {
 }
 
 fn guard(error: GuardViolation) -> AppError {
-    AppError::guard(error.to_string())
+    let mut result = AppError::guard(error.to_string());
+    if let Some(value) = error.guard() {
+        result = result.with("guard", value);
+    }
+    if let GuardViolation::PaymentMismatch { paid, total } = error {
+        result = result
+            .with("paid_cents", paid)
+            .with("settlement_cents", total);
+    }
+    result
 }
