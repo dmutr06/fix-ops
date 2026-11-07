@@ -4,11 +4,11 @@ use fixops_domain::audit::FieldChange;
 use fixops_domain::client::LoyaltyTier;
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::order::{
-    ClientDecision, DiagnosticFindings, Estimate, GuardViolation, NewRepairOrder, OrderStatus,
-    Payment, RepairOrder, RepairWork, TicketNumber,
+    ClientDecision, DiagnosticFindings, Estimate, GuardViolation, NewRepairOrder, OrderCorrection,
+    OrderStatus, Payment, RepairOrder, RepairWork, TicketNumber,
 };
 use fixops_domain::pricing::{Settlement, current_settlement};
-use fixops_domain::staff::{Action, Actor};
+use fixops_domain::staff::{Action, Actor, StaffAccount};
 
 use crate::clients::ClientStore;
 use crate::devices::DeviceStore;
@@ -76,6 +76,16 @@ pub trait OrderStore: Send + Sync {
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
+    /// Locks the validated client tier and assignee role until the versioned save commits.
+    fn correct_order(
+        &self,
+        actor: StaffId,
+        order: &RepairOrder,
+        client_version: i64,
+        assignee: &StaffAccount,
+        changes: &[FieldChange],
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
+
     fn find_order(
         &self,
         id: OrderId,
@@ -112,6 +122,51 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
                 other => other.into(),
             })?;
         Ok(created.into())
+    }
+
+    pub async fn correct_order(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        correction: OrderCorrection,
+    ) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::CorrectRepairOrder)?;
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let candidate = correction.apply(&current);
+        let (client, client_version) = self
+            .store
+            .find_client_with_version(candidate.client_id)
+            .await?
+            .ok_or_else(|| missing_link("client_id"))?;
+        let device = self
+            .store
+            .find_device(candidate.device_id)
+            .await?
+            .ok_or_else(|| missing_link("device_id"))?;
+        let assignee = self
+            .store
+            .find_staff(candidate.assigned_technician_id)
+            .await?
+            .ok_or_else(|| missing_link("assigned_technician_id"))?;
+        NewRepairOrder::intake(candidate.ticket_number.clone(), &client, &device, &assignee)
+            .map_err(|err| AppError::conflict(err.to_string()).with("field", err.field()))?;
+        let (order, changes) = current
+            .correct(candidate, client.loyalty_tier)
+            .map_err(guard)?;
+        self.store
+            .correct_order(actor.id, &order, client_version, &assignee, &changes)
+            .await
+            .map_err(|err| match err {
+                StoreError::Duplicate { .. } => AppError::conflict("ticket_number already exists")
+                    .with("ticket_number", &order.ticket_number),
+                other => other.into(),
+            })?;
+        let settlement = current_settlement(&order, client.loyalty_tier);
+        Ok(OrderView { order, settlement })
     }
 
     pub async fn record_diagnosis(

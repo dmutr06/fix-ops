@@ -10,6 +10,7 @@ use fixops_domain::order::{
     RepairOrder, TicketNumber,
 };
 use fixops_domain::pricing::Settlement;
+use fixops_domain::staff::StaffAccount;
 use sqlx::FromRow;
 use time::OffsetDateTime;
 
@@ -191,6 +192,38 @@ impl OrderStore for PgStore {
         tx.commit().await.map_err(store_error)
     }
 
+    async fn correct_order(
+        &self,
+        actor: StaffId,
+        order: &RepairOrder,
+        client_version: i64,
+        assignee: &StaffAccount,
+        changes: &[FieldChange],
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool().begin().await.map_err(store_error)?;
+        let version: Option<i64> =
+            sqlx::query_scalar("SELECT version FROM clients WHERE id = $1 FOR UPDATE")
+                .bind(order.client_id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(store_error)?;
+        if version != Some(client_version) {
+            return Err(StoreError::Stale);
+        }
+        let role: Option<String> =
+            sqlx::query_scalar("SELECT role FROM staff_accounts WHERE id = $1 FOR SHARE")
+                .bind(assignee.id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(store_error)?;
+        if role.as_deref() != Some(assignee.role.as_str()) {
+            return Err(StoreError::Stale);
+        }
+        // Foreign keys protect the final client/device pair; uniqueness is checked by UPDATE.
+        save_order(&mut tx, actor, order, changes).await?;
+        tx.commit().await.map_err(store_error)
+    }
+
     async fn find_order(&self, id: OrderId) -> Result<Option<RepairOrder>, StoreError> {
         sqlx::query_as::<_, OrderRow>(concat!(
             "SELECT ",
@@ -233,7 +266,7 @@ async fn save_order(
     order: &RepairOrder,
     changes: &[FieldChange],
 ) -> Result<(), StoreError> {
-    let result = sqlx::query("UPDATE repair_orders SET status = $3, diagnostic_findings = $4, estimate_parts_cents = $5, estimate_labor_cents = $6, client_decision = $7, client_decided_at = $8, used_parts_cents = $9, completed_labor_cents = $10, repair_checked = $11, payment_cents = $12, paid_at = $13, picked_up_at = $14, labor_discount_cents = $15, settlement_cents = $16, cancelled_from = $17, version = version + 1 WHERE id = $1 AND version = $2")
+    let result = sqlx::query("UPDATE repair_orders SET status = $3, diagnostic_findings = $4, estimate_parts_cents = $5, estimate_labor_cents = $6, client_decision = $7, client_decided_at = $8, used_parts_cents = $9, completed_labor_cents = $10, repair_checked = $11, payment_cents = $12, paid_at = $13, picked_up_at = $14, labor_discount_cents = $15, settlement_cents = $16, cancelled_from = $17, ticket_number = $18, client_id = $19, device_id = $20, assigned_technician_id = $21, version = version + 1 WHERE id = $1 AND version = $2")
         .bind(order.id.0).bind(order.version).bind(order.status.as_str())
         .bind(order.diagnostic_findings.as_ref().map(DiagnosticFindings::as_str))
         .bind(order.estimate.map(|e| e.parts.get())).bind(order.estimate.map(|e| e.labor.get()))
@@ -242,6 +275,7 @@ async fn save_order(
         .bind(order.payment.map(|p| p.amount.get())).bind(order.payment.map(|p| p.paid_at))
         .bind(order.picked_up_at).bind(order.final_settlement.map(|s| s.labor_discount.get()))
         .bind(order.final_settlement.map(|s| s.total.get())).bind(order.cancelled_from.map(OrderStatus::as_str))
+        .bind(order.ticket_number.as_str()).bind(order.client_id.0).bind(order.device_id.0).bind(order.assigned_technician_id.0)
         .execute(&mut **tx).await.map_err(store_error)?;
     if result.rows_affected() == 0 {
         return Err(StoreError::Stale);
@@ -257,6 +291,140 @@ mod tests {
     use fixops_domain::client::LoyaltyTier;
     use sqlx::PgPool;
     use std::time::{Duration, Instant};
+
+    async fn correction_fixture(pool: &PgPool) -> (PgStore, RepairOrder, StaffAccount) {
+        use fixops_app::staff::StaffStore;
+        let id: i64 = sqlx::query_scalar("INSERT INTO staff_accounts (username, password_hash, role) VALUES ('tech', 'unused', 'Technician') RETURNING id")
+            .fetch_one(pool).await.unwrap();
+        let client: i64 = sqlx::query_scalar(
+            "INSERT INTO clients (name, phone) VALUES ('Bob', '123') RETURNING id",
+        )
+        .fetch_one(pool)
+        .await
+        .unwrap();
+        let device: i64 = sqlx::query_scalar("INSERT INTO devices (client_id, device_type, serial_number, reported_symptoms) VALUES ($1, 'Laptop', 'SN1', 'No power') RETURNING id")
+            .bind(client).fetch_one(pool).await.unwrap();
+        let store = PgStore::new(pool.clone());
+        let intake = NewRepairOrder {
+            ticket_number: TicketNumber::parse("T1").unwrap(),
+            client_id: ClientId(client),
+            device_id: DeviceId(device),
+            assigned_technician_id: StaffId(id),
+        };
+        let order = store
+            .create_order(StaffId(id), &intake, &intake.changes())
+            .await
+            .unwrap();
+        let staff = store.find_staff(StaffId(id)).await.unwrap().unwrap();
+        (store, order, staff)
+    }
+
+    #[sqlx::test(migrator = "crate::MIGRATOR")]
+    async fn correction_rejects_stale_links_versions_and_rolls_back_failed_audit(pool: PgPool) {
+        let (store, current, staff) = correction_fixture(&pool).await;
+        let mut candidate = current.clone();
+        candidate.ticket_number = TicketNumber::parse("CORRECTED").unwrap();
+        let (candidate, changes) = current.correct(candidate, LoyaltyTier::Standard).unwrap();
+        // Audit FK failure occurs after UPDATE and must roll back both the data and version.
+        assert!(matches!(
+            store
+                .correct_order(StaffId(i64::MAX), &candidate, 0, &staff, &changes)
+                .await,
+            Err(StoreError::MissingReference { .. })
+        ));
+        assert_eq!(
+            store.find_order(current.id).await.unwrap().unwrap(),
+            current
+        );
+        let mut invalid_link = candidate.clone();
+        invalid_link.device_id = DeviceId(i64::MAX);
+        assert!(matches!(
+            store
+                .correct_order(staff.id, &invalid_link, 0, &staff, &changes)
+                .await,
+            Err(StoreError::MissingReference { .. })
+        ));
+        assert_eq!(
+            store.find_order(current.id).await.unwrap().unwrap(),
+            current
+        );
+        store
+            .correct_order(staff.id, &candidate, 0, &staff, &changes)
+            .await
+            .unwrap();
+        let saved = store.find_order(current.id).await.unwrap().unwrap();
+        assert_eq!(saved.version, current.version + 1);
+        assert!(matches!(
+            store
+                .correct_order(staff.id, &candidate, 0, &staff, &changes)
+                .await,
+            Err(StoreError::Stale)
+        ));
+        assert_eq!(store.find_order(current.id).await.unwrap().unwrap(), saved);
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_log WHERE record_type = 'RepairOrder' AND record_id = $1",
+        )
+        .bind(current.id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows, 6); // Five intake fields and exactly one successful correction.
+    }
+
+    #[sqlx::test(migrator = "crate::MIGRATOR")]
+    async fn correction_waits_for_concurrent_assignee_role_change(pool: PgPool) {
+        let (store, current, staff) = correction_fixture(&pool).await;
+        let mut candidate = current.clone();
+        candidate.ticket_number = TicketNumber::parse("CORRECTED").unwrap();
+        let (candidate, changes) = current.correct(candidate, LoyaltyTier::Standard).unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE staff_accounts SET role = 'Administrator' WHERE id = $1")
+            .bind(staff.id.0)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let writer = store.clone();
+        let task = tokio::spawn(async move {
+            writer
+                .correct_order(staff.id, &candidate, 0, &staff, &changes)
+                .await
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid)))")
+                .bind(pid).fetch_one(&pool).await.unwrap();
+            if waiting {
+                break;
+            }
+            assert!(
+                !task.is_finished(),
+                "correction passed an uncommitted role change"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "correction did not wait for the staff lock"
+            );
+            tokio::task::yield_now().await;
+        }
+        tx.commit().await.unwrap();
+        assert!(matches!(task.await.unwrap(), Err(StoreError::Stale)));
+        assert_eq!(
+            store.find_order(current.id).await.unwrap().unwrap(),
+            current
+        );
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_log WHERE record_type = 'RepairOrder' AND record_id = $1",
+        )
+        .bind(current.id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows, 5);
+    }
 
     /// A tier UPDATE that already holds the client lock must finish before settlement
     /// validates its snapshot. Merely reading the version without a lock fails this test.

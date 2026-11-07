@@ -9,8 +9,8 @@ use fixops_app::orders::{OrderFilter, OrderIntake, OrderView};
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::money::Cents;
 use fixops_domain::order::{
-    ClientDecision, Decision, DiagnosticFindings, Estimate, OrderStatus, Payment, RepairStage,
-    RepairWork, TicketNumber,
+    ClientDecision, Decision, DiagnosticFindings, Estimate, OrderCorrection, OrderStatus, Payment,
+    RepairStage, RepairWork, TicketNumber,
 };
 use fixops_domain::staff::Action;
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ use super::{ApiError, AppState};
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/orders", get(list).post(create))
-        .route("/orders/{orderId}", get(show))
+        .route("/orders/{orderId}", get(show).patch(correct))
         .route("/orders/{orderId}/diagnosis", put(diagnosis))
         .route("/orders/{orderId}/estimate", put(estimate))
         .route("/orders/{orderId}/decision", put(decision))
@@ -401,5 +401,150 @@ async fn cancel(
     let PathId(id) = id?;
     Ok(Json(
         state.app.cancel_order(actor, OrderId(id)).await?.into(),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+#[expect(
+    clippy::option_option,
+    reason = "omitted, null and set are distinct corrections"
+)]
+struct RepairOrderCorrectionRequest {
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    ticket_number: Option<String>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    client_id: Option<i64>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    device_id: Option<i64>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    assigned_technician_id: Option<i64>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    status: Option<String>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    diagnostic_findings: Option<Option<String>>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    estimate: Option<Option<EstimateRequest>>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    client_decision: Option<Option<DecisionRequest>>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    used_parts_cents: Option<i64>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    completed_labor_cents: Option<i64>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    repair_checked: Option<bool>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    payment: Option<Option<PaymentRequest>>,
+    #[serde(default, deserialize_with = "super::json::not_null")]
+    pickup: Option<Option<PickupRequest>>,
+}
+
+impl RepairOrderCorrectionRequest {
+    fn into_correction(self) -> Result<OrderCorrection, AppError> {
+        if self.ticket_number.is_none()
+            && self.client_id.is_none()
+            && self.device_id.is_none()
+            && self.assigned_technician_id.is_none()
+            && self.status.is_none()
+            && self.diagnostic_findings.is_none()
+            && self.estimate.is_none()
+            && self.client_decision.is_none()
+            && self.used_parts_cents.is_none()
+            && self.completed_labor_cents.is_none()
+            && self.repair_checked.is_none()
+            && self.payment.is_none()
+            && self.pickup.is_none()
+        {
+            return Err(AppError::validation(
+                "body",
+                "at least one correction field is required",
+            ));
+        }
+        Ok(OrderCorrection {
+            ticket_number: self
+                .ticket_number
+                .as_deref()
+                .map(TicketNumber::parse)
+                .transpose()?,
+            client_id: positive_id("client_id", self.client_id)?.map(ClientId),
+            device_id: positive_id("device_id", self.device_id)?.map(DeviceId),
+            assigned_technician_id: positive_id(
+                "assigned_technician_id",
+                self.assigned_technician_id,
+            )?
+            .map(StaffId),
+            status: self.status.as_deref().map(OrderStatus::parse).transpose()?,
+            diagnostic_findings: self
+                .diagnostic_findings
+                .map(|value| value.as_deref().map(DiagnosticFindings::parse).transpose())
+                .transpose()?,
+            estimate: self
+                .estimate
+                .map(|value| {
+                    value
+                        .map(|e| -> Result<_, AppError> {
+                            Ok(Estimate {
+                                parts: Cents::new("estimate.parts_cents", e.parts_cents)?,
+                                labor: Cents::new("estimate.labor_cents", e.labor_cents)?,
+                            })
+                        })
+                        .transpose()
+                })
+                .transpose()?,
+            client_decision: self
+                .client_decision
+                .map(|value| {
+                    value
+                        .map(|d| -> Result<_, AppError> {
+                            Ok(ClientDecision {
+                                decision: Decision::parse(&d.decision)?,
+                                decided_at: d.decided_at,
+                            })
+                        })
+                        .transpose()
+                })
+                .transpose()?,
+            used_parts: self
+                .used_parts_cents
+                .map(|n| Cents::new("used_parts_cents", n))
+                .transpose()?,
+            completed_labor: self
+                .completed_labor_cents
+                .map(|n| Cents::new("completed_labor_cents", n))
+                .transpose()?,
+            repair_checked: self.repair_checked,
+            payment: self
+                .payment
+                .map(|value| {
+                    value
+                        .map(|p| -> Result<_, AppError> {
+                            Ok(Payment {
+                                amount: Cents::new("payment.amount_cents", p.amount_cents)?,
+                                paid_at: p.paid_at,
+                            })
+                        })
+                        .transpose()
+                })
+                .transpose()?,
+            picked_up_at: self.pickup.map(|value| value.map(|p| p.picked_up_at)),
+        })
+    }
+}
+
+async fn correct(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<RepairOrderCorrectionRequest>, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::CorrectRepairOrder)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
+    Ok(Json(
+        state
+            .app
+            .correct_order(actor, OrderId(id), body.into_correction()?)
+            .await?
+            .into(),
     ))
 }

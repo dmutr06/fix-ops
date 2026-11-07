@@ -155,6 +155,9 @@ async fn terminal_corrections_recalculate_exact_payment_without_reopening(pool: 
         json!({"payment":null}),
         json!({"pickup":null}),
         json!({"payment":{"amount_cents":1,"paid_at":AT}}),
+        json!({"ticket_number":"INVALID-JOINT", "used_parts_cents":5000, "completed_labor_cents":8000, "payment":{"amount_cents":1,"paid_at":AT}, "pickup":null}),
+        json!({"status":"Completed", "used_parts_cents":5000, "client_decision":null, "repair_checked":false}),
+        json!({"used_parts_cents":5000, "completed_labor_cents":8000, "payment":{"amount_cents":11400,"paid_at":AT}, "pickup":null}),
     ] {
         reject(
             &app,
@@ -315,6 +318,17 @@ async fn cancelled_corrections_preserve_source_and_stage_pricing(pool: PgPool) {
             result["settlement_cents"],
             if stage == "InProgress" { 13000 } else { 0 }
         );
+        if stage == "Diagnosing" {
+            let charged = patch(
+                &app,
+                &s.admin,
+                &order,
+                json!({"diagnostic_findings":"Corrected findings"}),
+            )
+            .await
+            .expect(StatusCode::OK);
+            assert_eq!(charged["settlement_cents"], 3000);
+        }
         reject(
             &app,
             &s,
