@@ -4,5 +4,6 @@
 //! so every rule here is tested with plain unit tests.
 
 pub mod audit;
+pub mod error;
 pub mod id;
 pub mod staff;
