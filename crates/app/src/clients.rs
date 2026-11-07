@@ -22,6 +22,12 @@ pub trait ClientStore: Send + Sync {
         id: ClientId,
     ) -> impl Future<Output = Result<Option<Client>, StoreError>> + Send;
 
+    /// The client together with its version, read in one statement, for an update.
+    fn find_client_with_version(
+        &self,
+        id: ClientId,
+    ) -> impl Future<Output = Result<Option<(Client, i64)>, StoreError>> + Send;
+
     /// Clients whose name or phone contains `text`, ignoring case; all clients without `text`.
     /// Ordered by id.
     fn search_clients(
@@ -29,11 +35,14 @@ pub trait ClientStore: Send + Sync {
         text: Option<&str>,
     ) -> impl Future<Output = Result<Vec<Client>, StoreError>> + Send;
 
-    /// Saves every field of `client` with its audit `changes` in one transaction.
+    /// Saves every field of `client` with its audit `changes` in one transaction, only while
+    /// the stored version still equals `version`, and increments it. When the client was saved
+    /// since it was read, nothing is written and the result is [`StoreError::Stale`].
     fn update_client(
         &self,
         actor: StaffId,
         client: &Client,
+        version: i64,
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
@@ -65,9 +74,9 @@ impl<S: ClientStore> App<S> {
         patch: ClientPatch,
     ) -> AppResult<Client> {
         crate::authorize(actor, Action::UpdateClient)?;
-        let current = self.load_client(id).await?;
+        let (current, version) = self.load_client_for_update(id).await?;
         let (updated, changes) = current.update(patch);
-        self.save_client(actor, &updated, &changes).await?;
+        self.save_client(actor, &updated, version, &changes).await?;
         Ok(updated)
     }
 
@@ -79,9 +88,9 @@ impl<S: ClientStore> App<S> {
         tier: LoyaltyTier,
     ) -> AppResult<Client> {
         crate::authorize(actor, Action::SetClientLoyaltyTier)?;
-        let current = self.load_client(id).await?;
+        let (current, version) = self.load_client_for_update(id).await?;
         let (updated, changes) = current.set_loyalty_tier(tier);
-        self.save_client(actor, &updated, &changes).await?;
+        self.save_client(actor, &updated, version, &changes).await?;
         Ok(updated)
     }
 
@@ -92,14 +101,25 @@ impl<S: ClientStore> App<S> {
             .ok_or_else(AppError::not_found)
     }
 
+    async fn load_client_for_update(&self, id: ClientId) -> AppResult<(Client, i64)> {
+        self.store
+            .find_client_with_version(id)
+            .await?
+            .ok_or_else(AppError::not_found)
+    }
+
+    /// Saves `client` if it changed. A concurrent save in between is `409 GUARD_VIOLATION`.
     async fn save_client(
         &self,
         actor: Actor,
         client: &Client,
+        version: i64,
         changes: &[FieldChange],
     ) -> AppResult<()> {
         if !changes.is_empty() {
-            self.store.update_client(actor.id, client, changes).await?;
+            self.store
+                .update_client(actor.id, client, version, changes)
+                .await?;
         }
         Ok(())
     }

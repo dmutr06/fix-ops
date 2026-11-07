@@ -31,17 +31,26 @@ pub trait DeviceStore: Send + Sync {
         id: DeviceId,
     ) -> impl Future<Output = Result<Option<Device>, StoreError>> + Send;
 
+    /// The device together with its version, read in one statement, for an update.
+    fn find_device_with_version(
+        &self,
+        id: DeviceId,
+    ) -> impl Future<Output = Result<Option<(Device, i64)>, StoreError>> + Send;
+
     /// Matching devices, ordered by id.
     fn list_devices(
         &self,
         filter: &DeviceFilter,
     ) -> impl Future<Output = Result<Vec<Device>, StoreError>> + Send;
 
-    /// Saves every field of `device` with its audit `changes` in one transaction.
+    /// Saves every field of `device` with its audit `changes` in one transaction, only while
+    /// the stored version still equals `version`, and increments it. When the device was saved
+    /// since it was read, nothing is written and the result is [`StoreError::Stale`].
     fn update_device(
         &self,
         actor: StaffId,
         device: &Device,
+        version: i64,
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
@@ -78,11 +87,16 @@ impl<S: DeviceStore> App<S> {
         patch: DevicePatch,
     ) -> AppResult<Device> {
         crate::authorize(actor, Action::UpdateDevice)?;
-        let current = self.load_device(id).await?;
+        let (current, version) = self
+            .store
+            .find_device_with_version(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
         let (updated, changes) = current.update(patch);
+        // A concurrent save in between is `409 GUARD_VIOLATION`.
         if !changes.is_empty() {
             self.store
-                .update_device(actor.id, &updated, &changes)
+                .update_device(actor.id, &updated, version, &changes)
                 .await?;
         }
         Ok(updated)

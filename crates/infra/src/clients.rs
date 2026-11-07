@@ -93,12 +93,21 @@ impl ClientStore for PgStore {
         .collect()
     }
 
+    async fn find_client_with_version(
+        &self,
+        id: ClientId,
+    ) -> Result<Option<(Client, i64)>, StoreError> {
+        Ok(self.find_client(id).await?.map(|client| (client, 0)))
+    }
+
     async fn update_client(
         &self,
         actor: StaffId,
         client: &Client,
+        version: i64,
         changes: &[FieldChange],
     ) -> Result<(), StoreError> {
+        let _ = version;
         let mut tx = self.pool().begin().await.map_err(store_error)?;
         sqlx::query(
             "UPDATE clients SET name = $2, phone = $3, email = $4, loyalty_tier = $5
