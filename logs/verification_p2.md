@@ -1,10 +1,14 @@
 # VERIFICATION P2: Client, device and order intake
 
-**Decision:** recommendation FAIL (one Medium defect, D-1; everything else conforms) · **Ticket:** [FIX-32](https://linear.app/fixops/issue/FIX-32) · **Scope:** REQ-F-003, REQ-F-004, REQ-F-005, REQ-F-017, with REQ-F-001, REQ-F-002, REQ-NF-002, REQ-NF-003 for the new endpoints; BDD-001, BDD-002, BDD-011, BDD-015 (tier persistence), BDD-017; [ADD-002](../spec/addenda/ADD-002-api-contract.md) §1, §4, §5 for `/clients*`, `/devices*`, `GET`/`POST /orders`, `GET /orders/{orderId}` · **Baseline:** [SRS 1.0.2](../spec/srs.md), [ADD-001](../spec/addenda/ADD-001-permissions.md), [ADD-002](../spec/addenda/ADD-002-api-contract.md), [`openapi.yaml`](../spec/openapi.yaml), [glossary](../spec/glossary.md), [architecture](../docs/architecture.md) · **Code:** `fix-30-31/intake` at `docs: describe intake checks, search and settlement function`
+**Decision:** recommendation PASS (run 2; run 1 was FAIL, its defect D-1 is fixed and re-verified) · **Ticket:** [FIX-32](https://linear.app/fixops/issue/FIX-32) · **Scope:** REQ-F-003, REQ-F-004, REQ-F-005, REQ-F-017, with REQ-F-001, REQ-F-002, REQ-NF-002, REQ-NF-003 for the new endpoints; BDD-001, BDD-002, BDD-011, BDD-015 (tier persistence), BDD-017; [ADD-002](../spec/addenda/ADD-002-api-contract.md) §1, §4, §5 for `/clients*`, `/devices*`, `GET`/`POST /orders`, `GET /orders/{orderId}` · **Baseline:** [SRS 1.0.2](../spec/srs.md), [ADD-001](../spec/addenda/ADD-001-permissions.md), [ADD-002](../spec/addenda/ADD-002-api-contract.md), [`openapi.yaml`](../spec/openapi.yaml), [glossary](../spec/glossary.md), [architecture](../docs/architecture.md) · **Code:** run 1 `fix-30-31/intake` at `docs: describe intake checks, search and settlement function`; run 2 `fix-32/intake-fixes` at `fix: reject stale client and device updates`
+
+Run 1 below is kept as history; the current result is [Run 2](#run-2).
 
 Checked by a performer who did not write the code. Expected values come from the SRS, the addenda, the glossary, the contract and the architecture, not from code output. No product code was changed.
 
-## Commands
+## Run 1
+
+### Commands
 
 | Command | Result |
 |---|---|
@@ -16,7 +20,7 @@ Checked by a performer who did not write the code. Expected values come from the
 | `psql` via `docker exec` on the same database | See [Database checks](#database-checks) |
 | Server stopped, database dropped | Done |
 
-## Requirements
+### Requirements
 
 | Requirement | Check | Evidence | Result |
 |---|---|---|---|
@@ -44,7 +48,7 @@ Checked by a performer who did not write the code. Expected values come from the
 | ADD-002 §4 | Integer cents | All `*_cents` are JSON integers; DB columns `bigint` with `>= 0` checks | PASS |
 | ADD-002 §5 | Unified `ErrorResponse` | Every error body has only `code`, `message`, optional `details`; codes from the contract enum; `Content-Type: application/json` | PASS |
 
-## Manual HTTP checks
+### Manual HTTP checks
 
 | Request | Expected | Actual |
 |---|---|---|
@@ -82,7 +86,7 @@ Checked by a performer who did not write the code. Expected values come from the
 | 20 rounds: `PUT …/loyalty-tier` and `PATCH /clients/{id}` `{"phone"}` at the same time | Tier kept | Tier reverted in 8 of 20 rounds; audit shows the new tier (D-1) |
 | 20 rounds: two `PATCH /devices/{id}` on different fields at the same time | Both changes kept | Lost one change in 20 of 20 rounds (D-1) |
 
-## Database checks
+### Database checks
 
 | Check | Expected | Actual | Result |
 |---|---|---|---|
@@ -97,7 +101,7 @@ Checked by a performer who did not write the code. Expected values come from the
 
 The generated rows for `EXPLAIN` were inserted directly in SQL after the HTTP checks, so they have no audit rows and are not counted above.
 
-## Test review (risk R-11)
+### Test review (risk R-11)
 
 The tests assert contract values: statuses, `ErrorResponse.code`, `details.field` or `details.ticket_number`, exact key sets of `Client`, `Device` and `RepairOrder`, and the contract example values (`Bob Vance`, `SN-THINKPAD-9001`, `FIX-2026-0001`). Audit expectations are written out field by field, not copied from output. Every rejected or denied request is followed by a read-back of clients, devices, orders and the audit log. Domain tests cover the parsers, trimming, the intake rules and the audit changes. No test asserts an implementation value that contradicts the spec.
 
@@ -111,7 +115,7 @@ The tests assert contract values: statuses, `ErrorResponse.code`, `details.field
 | No test for overflowing integers in bodies or paths beyond the path id case | Verified manually: `400` |
 | `GET /orders` and `GET /orders/{id}` are only tested on `Received` orders | Correct for P2; see open point d |
 
-## Open points
+### Open points
 
 | Point | Finding | Recommendation |
 |---|---|---|
@@ -120,7 +124,7 @@ The tests assert contract values: statuses, `ErrorResponse.code`, `details.field
 | (c) Broken device or technician link uses `409 CONFLICT`, not `GUARD_VIOLATION` | The `createRepairOrder` `409` is described as "duplicate ticket number or invalid device/technician relationship"; ADD-002 §5 and the architecture reserve `GUARD_VIOLATION` for lifecycle and settlement guards. `details.field` tells the two `409` causes apart | Keep `CONFLICT`. Use the same code for the same relationship rules in P6 corrections |
 | (d) `pricing::current_settlement` has an `unimplemented!` branch | Not reachable through any P2 endpoint: the only write to `repair_orders` is the intake `INSERT` with `Received`, and `correctRepairOrder` is not routed (`405`). Reached by setting one order to `Diagnosing` directly in SQL: `GET /orders/{id}` and unfiltered `GET /orders` drop the connection with no HTTP response, no `ErrorResponse` and no line in the JSON log (panic only on stderr); `?status=Received` still works. Order reverted afterwards | Acceptable for P2. P3 must replace the branch in the same change that introduces `Diagnosing`, otherwise one diagnosed order breaks every unfiltered order list. Make "no `unimplemented!` reachable from a routed handler" a P3 exit criterion; a panic-catching layer that answers `500 INTERNAL` and logs an `ERROR` line would also make such failures visible |
 
-## Operational log
+### Operational log
 
 JSON-lines file `fixops.log.YYYY-MM-DD` in `FIXOPS_LOG_DIR`, 1,095 lines.
 
@@ -135,7 +139,7 @@ JSON-lines file `fixops.log.YYYY-MM-DD` in `FIXOPS_LOG_DIR`, 1,095 lines.
 | Secrets | No password, hash or token | 0 hits for both passwords, the issued admin token, `$argon2`, `Bearer`, `Authorization`; no query strings | PASS |
 | Record values | None | 0 hits for client names, phones, emails, serials, symptoms. The ticket number appears twice, in `details` of the duplicate-ticket rejection (O-2) | PASS, note |
 
-## Defects
+### Defects
 
 | ID | Severity | Requirement | Description |
 |---|---|---|---|
@@ -147,7 +151,7 @@ JSON-lines file `fixops.log.YYYY-MM-DD` in `FIXOPS_LOG_DIR`, 1,095 lines.
 | O-2 | Observation | `request rejected` logs `details`, so the duplicate ticket number appears in the operational log. It is an identifier the caller sent, not personal data, and P1 does the same with `details.username`; the architecture forbids changed values, which this is not. Accept, or log only `details` keys |
 | O-3 | Observation | No maximum length on name, phone, email, serial, symptoms or ticket number; only the 2 MB body limit applies. The spec is silent |
 
-## Limitations
+### Limitations (run 1)
 
 - Performance (REQ-NF-001, 10 concurrent users, 10,000 orders) is P7. With about 5,000 rows per table every search answered in under 3 ms; the planner preferred sequential scans to the trigram indexes at that size. `GET /clients`, `/devices`, `/orders` return all matches without paging; the contract defines none.
 - The `$1 IS NULL OR …` filter form cannot use an index under a generic plan. PostgreSQL keeps custom plans when they are much cheaper, so this did not show here; it should be part of the P7 load test.
@@ -155,3 +159,91 @@ JSON-lines file `fixops.log.YYYY-MM-DD` in `FIXOPS_LOG_DIR`, 1,095 lines.
 - The `unimplemented!` branch was reached only by editing the database directly; no P2 endpoint can reach it.
 - The concurrency results depend on timing; the counts show the race exists, not its rate in normal use.
 - The service still connects as the database superuser (accepted in P1 and moved to P7).
+
+## Run 2
+
+**Result:** PASS · **Code:** `fix-32/intake-fixes` = run 1 log, then `test: cover concurrent client and device updates`, `fix: reject stale client and device updates`, on top of current `main` · **Gate-owner decisions:** fix D-1; dispositions of the open points and observations are listed under [Limitations](#limitations)
+
+### Commands
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | Clean |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 warnings |
+| `cargo test --workspace` | 138 passed, 0 failed: `intake` 35, `stale_updates` 5 (new), `staff_access` 32, `logging` 4, `permissions` 3, `contract` 3, `platform` 2, `fixops-domain` 39, `fixops-app` 8, `fixops-infra` 4, `fixops` lib 3 |
+| `cargo run --release` on a fresh database, same settings as run 1 | Migrations ran (including `client_device_version`), 856 requests served, no `ERROR` lines, no `5xx` |
+| Run 1 HTTP script, unchanged | 268 checks: 267 as in run 1; the 1 former mismatch now ends in `409` instead of a silent loss (see below) |
+| Concurrency script (per round: both responses, record read-back, audit compared with the record) | 80 rounds, 0 silent losses, 0 audit/record mismatches |
+| Server stopped, database dropped | Done |
+
+### Review of the test and fix commits
+
+| Item | Finding | Result |
+|---|---|---|
+| `stale_client_update_is_rejected_and_changes_nothing`, `stale_tier_change_is_rejected_and_changes_nothing`, `stale_device_update_is_rejected_and_changes_nothing` | Build a stale save deterministically (read through the store, change through the API, save the old copy). Assert `StoreError::Stale` → `409 GUARD_VIOLATION`, the record read back unchanged with the newer value kept, and the audit log unchanged. Expresses AC-F-017 ("an authorized change persists") and REQ-NF-003 (no unaudited change) without depending on timing | OK |
+| `fresh_saves_succeed_one_after_another` | Re-reading before each save succeeds every time, so the check does not block normal sequential work | OK |
+| `sequential_updates_persist_and_match_the_audit_log` | After API updates of every client and device field and a tier change, the last audited value of each field equals the stored value. Directly the invariant D-1 broke | OK |
+| Gaps | The stale path is exercised at the store, and its `409` through `ApiError` conversion, not through a live HTTP race; no test retries through HTTP after a `409`. Both are covered by the measurement below | Note |
+| Fix | Migration adds `version bigint NOT NULL DEFAULT 0 CHECK (version >= 0)` to `clients` and `devices`. Updates read record and version in one statement and write `… version = version + 1 WHERE id = $1 AND version = $2`; zero rows → `StoreError::Stale` before the audit insert, and the dropped transaction rolls back. `update_client`, `set_loyalty_tier` and `update_device` all go through it; a no-op update writes nothing and needs no check | OK |
+
+### Concurrency measurement (former D-1)
+
+Same rounds as run 1, release build. Each round sends two requests on different fields of one record at the same time, then reads the record and its audit entries back.
+
+| Rounds | Run 1 | Run 2 responses | Applied but lost | Audit ≠ record |
+|---|---|---|---|---|
+| 40 × `PATCH /clients/{id}` name + phone | 40 rounds lost a change silently | 40 × `200`, 40 × `409 GUARD_VIOLATION` | 0 | 0 |
+| 20 × `PUT …/loyalty-tier` + `PATCH` phone | 8 tier changes reverted silently | 24 × `200`, 16 × `409 GUARD_VIOLATION` | 0 | 0 |
+| 20 × `PATCH /devices/{id}` serial + symptoms | 20 rounds lost a change silently | 20 × `200`, 20 × `409 GUARD_VIOLATION` | 0 | 0 |
+
+- Every request either applied (its value is in the record after the round) or got `409` with only `code`, `message`, `details`; no other status occurred.
+- After all rounds, SQL comparison of the last audited value of every client and device field with the stored value: 0 differences (run 1: 2).
+- A `409`'d change resent alone → `200`, applied.
+- `version` ranges 0–41 on clients and 0–20 on devices, one increment per applied change.
+- The run 1 HTTP script's own concurrency check still reports 40 "lost" rounds because it counts a rejected request as lost; in run 2 all 40 are `409` responses (116 `GUARD_VIOLATION` lines in the log = 40 + 40 + 16 + 20), not silent losses.
+
+### Spot checks of run 1 results
+
+All 267 run 1 expectations hold with identical results: 401 on all 13 operations, 403 for denied roles whatever the request, check order, validation, `404`/`409` link answers, duplicate ticket, open points a and b, the read-back after every rejection. Status counts: `200` 486, `201` 27, `400` 123, `401` 60, `403` 26, `404` 11, `405` 1, `409` 122 (`CONFLICT` 6, `GUARD_VIOLATION` 116).
+
+### Operational log
+
+JSON-lines file, 1,378 lines.
+
+| Check | Actual | Result |
+|---|---|---|
+| Every request logged once | 856 `request finished`, 856 distinct `request_id`s | PASS |
+| Level by status | 0 mismatches; no `ERROR` lines | PASS |
+| Actor and action | On 677 of 678 P2 requests not answered `401`; the exception is the unrouted `PATCH /orders/{id}` (`405`) | PASS |
+| Denials | 26 `action denied` = 26 `403` | PASS |
+| Rejections | 342 `request rejected` = 343 4xx minus the `405`; each stale save logged as `GUARD_VIOLATION` with `action` `updateClient`, `setClientLoyaltyTier` or `updateDevice` and empty `details` | PASS |
+| Changes | 151 `record changed` (Client 113, Device 26, RepairOrder 5, StaffAccount 7); no line for a rejected stale save | PASS |
+| Secrets and record values | 0 hits for passwords, the token, `$argon2`, `Bearer`, `Authorization`, names, phones, emails, serials, symptoms; the ticket number twice in duplicate-ticket `details` (O-2, accepted) | PASS |
+
+### Defects
+
+None. D-1 from run 1 is fixed and re-verified.
+
+| ID | Kind | Note |
+|---|---|---|
+| O-4 | Observation | `openapi.yaml` lists no `409` for `updateClient`, `setClientLoyaltyTier` and `updateDevice`, which can now answer `409 GUARD_VIOLATION`. ADD-002 §5 allows `409` for a violated guard, so the status is within the policy, but the operations' response lists should name it; candidate contract addendum, together with the choice of `GUARD_VIOLATION` (rather than `CONFLICT`) for a stale save |
+| O-5 | Observation | Architecture § Concurrency still describes the `version` check for orders only; it now applies to clients and devices too |
+
+## Limitations
+
+Run 1 limitations still apply (performance and paging are P7; the generic-plan note for the `$1 IS NULL OR …` filters; BDD-015 settlement effect is P5; the service connects as superuser, moved to P7). In addition:
+
+- The version is not exposed in the API, so the check protects concurrent server-side saves, not a screen that was loaded earlier: two staff who edit the **same** field one after another still get "last save wins", with both saves audited. The contract has no field for a client-side version.
+- Concurrency results depend on timing; they show that no interleaving in 80 rounds lost a change, not a proof for every interleaving. The deterministic stale tests cover the mechanism.
+
+Gate-owner dispositions:
+
+| Point | Disposition |
+|---|---|
+| (a) Assigning a disabled Technician | Accepted for now; the spec is silent; candidate addendum |
+| (b) Ticket numbers compared exactly after trimming | Accepted |
+| O-1 `ticket_number` list filter not trimmed | Moved to the refactor backlog; order files are being changed by another package |
+| (c) `409 CONFLICT` for a broken device or technician link | Kept |
+| (d) `unimplemented!` branch in `pricing::current_settlement` | Removed in P3 |
+| O-2 Ticket number in log `details` | Accepted, no change |
+| O-3 No maximum text lengths | Accepted, no change |
