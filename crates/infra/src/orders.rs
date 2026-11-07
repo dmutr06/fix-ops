@@ -319,6 +319,74 @@ mod tests {
         (store, order, staff)
     }
 
+    // REQ-F-005 / BDD-001 and REQ-NF-003: an assignee must still be a Technician
+    // when intake commits, and rejection must add neither an order nor audit rows.
+    #[sqlx::test(migrator = "crate::MIGRATOR")]
+    async fn intake_waits_for_assignee_role_change_and_rejects_without_writes(pool: PgPool) {
+        use fixops_app::clients::ClientStore;
+        use fixops_app::devices::DeviceStore;
+
+        let (store, current, staff) = correction_fixture(&pool).await;
+        let client = store.find_client(current.client_id).await.unwrap().unwrap();
+        let device = store.find_device(current.device_id).await.unwrap().unwrap();
+        // Complete the same domain prevalidation as App::create_order before changing role.
+        let intake = NewRepairOrder::intake(
+            TicketNumber::parse("RACING-INTAKE").unwrap(),
+            &client,
+            &device,
+            &staff,
+        )
+        .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE staff_accounts SET role = 'Administrator' WHERE id = $1")
+            .bind(staff.id.0)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let task = tokio::spawn(async move {
+            store
+                .create_order(staff.id, &intake, &intake.changes())
+                .await
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let waited = loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid)))")
+                .bind(pid).fetch_one(&pool).await.unwrap();
+            if waiting {
+                break true;
+            }
+            if task.is_finished() {
+                break false;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "intake did not reach the staff lock"
+            );
+            tokio::task::yield_now().await;
+        };
+        tx.commit().await.unwrap();
+        let result = task.await.unwrap();
+        let orders: i64 = sqlx::query_scalar("SELECT count(*) FROM repair_orders")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        let audit_rows: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            (orders, audit_rows),
+            (1, 5),
+            "rejected intake must not write"
+        );
+        assert!(waited, "intake passed an uncommitted assignee role change");
+        assert!(matches!(result, Err(StoreError::Stale)), "{result:?}");
+    }
+
     #[sqlx::test(migrator = "crate::MIGRATOR")]
     async fn correction_rejects_stale_links_versions_and_rolls_back_failed_audit(pool: PgPool) {
         let (store, current, staff) = correction_fixture(&pool).await;
