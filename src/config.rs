@@ -1,6 +1,7 @@
 //! Runtime configuration read from environment variables.
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 
 use anyhow::{Context, bail};
 use fixops_domain::staff::{Password, Username};
@@ -11,6 +12,8 @@ pub struct Config {
     pub database_url: String,
     pub listen_addr: SocketAddr,
     pub db_max_connections: u32,
+    /// Directory of the daily operational log files.
+    pub log_dir: PathBuf,
     pub bootstrap_admin: Option<BootstrapAdmin>,
 }
 
@@ -27,6 +30,7 @@ impl Config {
             database_url: std::env::var("DATABASE_URL").context("DATABASE_URL is not set")?,
             listen_addr: var_or("FIXOPS_LISTEN_ADDR", "127.0.0.1:8080")?,
             db_max_connections: var_or("FIXOPS_DB_MAX_CONNECTIONS", "10")?,
+            log_dir: var_or("FIXOPS_LOG_DIR", "var/log")?,
             bootstrap_admin: bootstrap_admin()?,
         })
     }

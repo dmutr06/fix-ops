@@ -7,6 +7,7 @@ mod json;
 mod params;
 mod sessions;
 mod staff;
+mod trace;
 
 use std::sync::Arc;
 
@@ -14,7 +15,6 @@ use axum::Router;
 use axum::routing::get;
 use fixops_app::App;
 use fixops_infra::PgStore;
-use tower_http::trace::TraceLayer;
 
 pub use auth::SignedIn;
 pub use error::ApiError;
@@ -41,12 +41,11 @@ pub fn router(state: AppState) -> Router {
         .merge(staff::routes())
         .merge(audit::routes());
 
-    Router::new()
+    let router = Router::new()
         .route("/health", get(health))
         .nest("/api/v1", api)
-        .fallback(not_found)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state)
+        .fallback(not_found);
+    trace::layer(router).with_state(state)
 }
 
 async fn health() -> &'static str {

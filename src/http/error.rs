@@ -42,6 +42,8 @@ impl IntoResponse for ApiError {
         let (status, code) = status_and_code(err.kind);
         if err.kind == ErrorKind::Internal {
             tracing::error!(error = ?err, "request failed");
+        } else {
+            tracing::warn!(code, reason = %err.message, details = ?err.details, "request rejected");
         }
 
         let details = err

@@ -44,7 +44,7 @@ impl<S: AuditStore> App<S> {
         actor: Actor,
         filter: AuditFilter,
     ) -> AppResult<Vec<AuditEntry>> {
-        actor.require(Action::ListAuditLogs)?;
+        crate::authorize(actor, Action::ListAuditLogs)?;
         Ok(self.store.list_audit_entries(filter).await?)
     }
 }
