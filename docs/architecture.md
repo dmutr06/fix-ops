@@ -98,6 +98,11 @@ Every line inside a request carries the `request` span: `request_id` (from `x-re
 - Timestamps are `time::OffsetDateTime`, stored as `timestamptz`, serialized as RFC 3339.
 - Enums are stored as `text` with a `CHECK` constraint listing the allowed values.
 - Uniqueness (ticket number, username) is a database `UNIQUE` constraint. The store maps the violation to `StoreError::Duplicate`, and the use case turns it into `409 CONFLICT`.
+- Searches (`q` on clients and devices) are case-insensitive substring matches: `ILIKE` with `%`, `_` and `\` escaped, served by `pg_trgm` GIN indexes. Exact filters (`client_id`, `status`, `ticket_number`) use B-tree indexes.
+
+### Intake
+
+Creating an order checks, in this order: the ticket number and ids are valid (`400`); the client, device and assignee exist (`404`, `details.field` names the link); then `NewRepairOrder::intake` requires the device to belong to the client and the assignee to have the `Technician` role (`409 CONFLICT`, `details.field`); finally a taken ticket number is `409 CONFLICT` with `details.ticket_number`. An Administrator can perform Technician actions but is not a Technician, so it cannot be the assignee. A composite foreign key `(device_id, client_id) → devices (id, client_id)` keeps the device-client link true in the database as well.
 
 ### Settlement
 
@@ -106,6 +111,7 @@ Every line inside a request carries the `request` span: `request_id` (from `x-re
 - While an order is open, they are computed from incurred charges and the client's **current** tier, so a tier change before final settlement applies (BDD-015).
 - When the order reaches `Completed` or `Cancelled`, the computed values are stored on the order and stay fixed after that.
 - Discount = labor × rate, rounded half-up to whole cents in integer arithmetic.
+- One domain function, `pricing::current_settlement`, gives both values; the use case returns it with the order (`OrderView`), so the HTTP layer never computes money. It returns the stored values of a terminal order and `0` for a `Received` order. The other open states and the tier discount arrive with the transitions that reach them.
 
 ### Concurrency
 
