@@ -105,4 +105,23 @@ mod tests {
             1_844_674_407_370_955_161
         );
     }
+    #[test]
+    fn rounding_boundaries_and_large_cents_are_exact() {
+        for (tier, labor, want) in [
+            (LoyaltyTier::Standard, 5, 0),
+            (LoyaltyTier::Silver, 4, 0),
+            (LoyaltyTier::Silver, 5, 1),
+            (LoyaltyTier::Silver, 6, 1),
+            (LoyaltyTier::Silver, 14, 1),
+            (LoyaltyTier::Silver, 15, 2),
+            (LoyaltyTier::Gold, 2, 0),
+            (LoyaltyTier::Gold, 3, 1),
+            (LoyaltyTier::Silver, i64::MAX, 922_337_203_685_477_581),
+        ] {
+            assert_eq!(
+                labor_discount(Cents::new("labor", labor).unwrap(), tier).get(),
+                want
+            );
+        }
+    }
 }
