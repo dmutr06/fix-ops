@@ -120,6 +120,94 @@ async fn correction_sets_and_clears_nullable_fields_and_validates_joint_state(po
 }
 
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn completed_metadata_correction_keeps_settlement_after_tier_change(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let s = staff(&app).await;
+    let order = in_progress_order(&app, &s, "Silver").await;
+    repair(&app, &s, &order, &json!({"status":"Ready", "used_parts_cents":10000, "completed_labor_cents":10000, "repair_checked":true})).await;
+    patch(&app, &s.admin, &order, json!({"status":"Completed", "payment":{"amount_cents":19000,"paid_at":AT}, "pickup":{"picked_up_at":AT}})).await.expect(StatusCode::OK);
+    set_tier(&app, &s, order.client, "Gold").await;
+    let before = order_audit(&app, &s.admin, &order).await;
+    let corrected = patch(&app, &s.admin, &order, json!({"ticket_number":"COMPLETED-FIXED", "used_parts_cents":10000, "completed_labor_cents":10000})).await.expect(StatusCode::OK);
+    assert_eq!(corrected["settlement_cents"], 19000);
+    assert_eq!(corrected["labor_discount_cents"], 1000);
+    assert_eq!(get_order(&app, &s.admin, &order).await, corrected);
+    let after = order_audit(&app, &s.admin, &order).await;
+    assert_eq!(&after[..before.len()], before);
+    assert_eq!(
+        changes(&after[before.len()..]),
+        vec![change(
+            "ticket_number",
+            json!(order.ticket),
+            json!("COMPLETED-FIXED"),
+            s.admin_id
+        )]
+    );
+    reject(
+        &app,
+        &s,
+        &order,
+        json!({"payment":{"amount_cents":18000,"paid_at":AT}}),
+        StatusCode::CONFLICT,
+        "GUARD_VIOLATION",
+    )
+    .await;
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn cancelled_metadata_correction_keeps_settlement_after_tier_change(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let s = staff(&app).await;
+    let order = in_progress_order(&app, &s, "Silver").await;
+    repair(
+        &app,
+        &s,
+        &order,
+        &json!({"status":"InProgress", "used_parts_cents":10000, "completed_labor_cents":10000}),
+    )
+    .await;
+    app.post(&order.path("cancel"))
+        .token(&s.admin)
+        .send()
+        .await
+        .expect(StatusCode::OK);
+    set_tier(&app, &s, order.client, "Gold").await;
+    let before = order_audit(&app, &s.admin, &order).await;
+    let corrected = patch(
+        &app,
+        &s.admin,
+        &order,
+        json!({"ticket_number":"CANCELLED-FIXED", "completed_labor_cents":10000}),
+    )
+    .await
+    .expect(StatusCode::OK);
+    assert_eq!(corrected["settlement_cents"], 19000);
+    assert_eq!(corrected["labor_discount_cents"], 1000);
+    assert_eq!(get_order(&app, &s.admin, &order).await, corrected);
+    let after = order_audit(&app, &s.admin, &order).await;
+    assert_eq!(&after[..before.len()], before);
+    assert_eq!(
+        changes(&after[before.len()..]),
+        vec![change(
+            "ticket_number",
+            json!(order.ticket),
+            json!("CANCELLED-FIXED"),
+            s.admin_id
+        )]
+    );
+    let financial = patch(
+        &app,
+        &s.admin,
+        &order,
+        json!({"completed_labor_cents":8000}),
+    )
+    .await
+    .expect(StatusCode::OK);
+    assert_eq!(financial["settlement_cents"], 16400);
+    assert_eq!(financial["labor_discount_cents"], 1600);
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
 async fn terminal_corrections_recalculate_exact_payment_without_reopening(pool: PgPool) {
     let app = TestApp::new(pool);
     let s = staff(&app).await;
