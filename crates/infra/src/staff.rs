@@ -172,12 +172,13 @@ impl StaffStore for PgStore {
             .execute(&mut *tx)
             .await
             .map_err(store_error)?;
-        let current: Option<(String, bool)> =
-            sqlx::query_as("SELECT role, enabled FROM staff_accounts WHERE id = $1 FOR UPDATE")
-                .bind(account.id.0)
-                .fetch_optional(&mut *tx)
-                .await
-                .map_err(store_error)?;
+        let current: Option<(String, bool)> = sqlx::query_as(
+            "SELECT role, enabled FROM staff_accounts WHERE id = $1 FOR NO KEY UPDATE",
+        )
+        .bind(account.id.0)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(store_error)?;
 
         if current.is_some_and(|(role, enabled)| role == "Administrator" && enabled)
             && (account.role.as_str() != "Administrator" || !account.enabled)
