@@ -709,6 +709,28 @@ pub(crate) mod tests {
 
     use OrderStatus::{Cancelled, Completed, Diagnosing, InProgress, Ready, Received};
 
+    #[test]
+    fn lifecycle_checks_all_36_source_target_pairs() {
+        let allowed = [
+            (Received, Diagnosing),
+            (Received, Cancelled),
+            (Diagnosing, InProgress),
+            (Diagnosing, Cancelled),
+            (InProgress, Ready),
+            (InProgress, Cancelled),
+            (Ready, Completed),
+        ];
+        for from in OrderStatus::ALL {
+            for to in OrderStatus::ALL {
+                assert_eq!(
+                    from.check_move(to).is_ok(),
+                    allowed.contains(&(from, to)),
+                    "{from} -> {to}"
+                );
+            }
+        }
+    }
+
     // --- Values ---
 
     #[test]
@@ -1146,6 +1168,85 @@ pub(crate) mod tests {
                 terminal
                     .record_repair_work(work(RepairStage::Ready))
                     .is_err()
+            );
+        }
+    }
+    #[test]
+    fn settlement_commands_guard_every_source_state() {
+        for status in OrderStatus::ALL {
+            let mut order = ready();
+            order.status = status;
+            order.payment = Some(Payment {
+                amount: cents(19000),
+                paid_at: october_21(11, 0),
+            });
+            order.picked_up_at = Some(october_21(11, 5));
+            let before = order.clone();
+            assert_eq!(order.complete(LoyaltyTier::Silver).is_ok(), status == Ready);
+            assert_eq!(
+                order.cancel(LoyaltyTier::Silver).is_ok(),
+                matches!(status, Received | Diagnosing | InProgress)
+            );
+            assert_eq!(
+                order
+                    .record_payment(Payment {
+                        amount: cents(0),
+                        paid_at: october_21(11, 0)
+                    })
+                    .is_ok(),
+                status == Ready
+            );
+            assert_eq!(
+                order.record_pickup(october_21(11, 5)).is_ok(),
+                status == Ready
+            );
+            assert_eq!(order, before);
+        }
+    }
+
+    #[test]
+    fn completion_requires_exact_payment_and_pickup() {
+        let mut order = ready();
+        for paid in [None, Some(18999), Some(19001), Some(19000)] {
+            order.payment = paid.map(|n| Payment {
+                amount: cents(n),
+                paid_at: october_21(11, 0),
+            });
+            assert!(order.complete(LoyaltyTier::Silver).is_err());
+            order.picked_up_at = Some(october_21(11, 5));
+            assert_eq!(
+                order.complete(LoyaltyTier::Silver).is_ok(),
+                paid == Some(19000)
+            );
+            order.picked_up_at = None;
+        }
+    }
+
+    #[test]
+    fn cancellation_prices_each_stage_and_saves_its_source() {
+        for (order, total) in [
+            (received(), 0),
+            (diagnosing(None), 0),
+            (estimated(), 3000),
+            (decided(Decision::Approved), 3000),
+            (in_progress(), 0),
+            (
+                RepairOrder {
+                    used_parts: cents(10000),
+                    completed_labor: cents(5000),
+                    ..in_progress()
+                },
+                14000,
+            ),
+        ] {
+            let (cancelled, _) = order.cancel(LoyaltyTier::Gold).unwrap();
+            assert_eq!(cancelled.cancelled_from, Some(order.status));
+            assert_eq!(cancelled.final_settlement.unwrap().total.get(), total);
+            assert_eq!(
+                crate::pricing::current_settlement(&cancelled, LoyaltyTier::Standard)
+                    .total
+                    .get(),
+                total
             );
         }
     }
