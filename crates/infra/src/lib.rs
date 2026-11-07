@@ -2,7 +2,10 @@
 //! password hashing.
 
 mod audit;
+mod clients;
+mod devices;
 mod error;
+mod orders;
 mod password;
 mod staff;
 
@@ -38,4 +41,30 @@ pub async fn connect(database_url: &str, max_connections: u32) -> Result<PgPool,
         .max_connections(max_connections)
         .connect(database_url)
         .await
+}
+
+/// A pattern for `ILIKE` that matches `text` anywhere, with `%`, `_` and `\` in `text` taken
+/// literally.
+pub(crate) fn contains_pattern(text: &str) -> String {
+    let mut pattern = String::with_capacity(text.len() + 2);
+    pattern.push('%');
+    for c in text.chars() {
+        if matches!(c, '%' | '_' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(c);
+    }
+    pattern.push('%');
+    pattern
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn contains_pattern_escapes_wildcards() {
+        assert_eq!(contains_pattern("vance"), "%vance%");
+        assert_eq!(contains_pattern("50%_off\\"), "%50\\%\\_off\\\\%");
+    }
 }

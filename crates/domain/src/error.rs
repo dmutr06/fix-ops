@@ -14,3 +14,15 @@ impl InvalidField {
         Self { field, message }
     }
 }
+
+/// Trims `raw` and rejects the result when it is empty.
+pub(crate) fn required_text(
+    field: &'static str,
+    message: &'static str,
+    raw: &str,
+) -> Result<String, InvalidField> {
+    match raw.trim() {
+        "" => Err(InvalidField::new(field, message)),
+        text => Ok(text.to_owned()),
+    }
+}

@@ -79,6 +79,21 @@ impl FieldChange {
         (previous != new)
             .then(|| Self::new(field, Some(previous.to_string()), Some(new.to_string())))
     }
+
+    /// Like [`FieldChange::diff`] for a value that may be absent.
+    pub fn diff_optional<T: PartialEq + ToString>(
+        field: &'static str,
+        previous: Option<&T>,
+        new: Option<&T>,
+    ) -> Option<Self> {
+        (previous != new).then(|| {
+            Self::new(
+                field,
+                previous.map(ToString::to_string),
+                new.map(ToString::to_string),
+            )
+        })
+    }
 }
 
 #[cfg(test)]

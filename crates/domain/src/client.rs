@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::audit::FieldChange;
-use crate::error::InvalidField;
+use crate::error::{InvalidField, required_text};
 use crate::id::ClientId;
 
 /// A client's name: trimmed and non-empty.
@@ -12,8 +12,7 @@ pub struct ClientName(String);
 
 impl ClientName {
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        required_text("name", "name is required and cannot be empty", raw).map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -27,8 +26,7 @@ pub struct Phone(String);
 
 impl Phone {
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        required_text("phone", "phone is required and cannot be empty", raw).map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -41,9 +39,25 @@ impl Phone {
 pub struct Email(String);
 
 impl Email {
+    /// Accepts `local@domain` where the domain has at least two dot-separated labels and
+    /// nothing contains whitespace or a second `@`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        let email = raw.trim();
+        let valid = !email.contains(char::is_whitespace)
+            && email.split_once('@').is_some_and(|(local, domain)| {
+                !local.is_empty()
+                    && !domain.contains('@')
+                    && domain.contains('.')
+                    && domain.split('.').all(|label| !label.is_empty())
+            });
+        if valid {
+            Ok(Self(email.to_owned()))
+        } else {
+            Err(InvalidField::new(
+                "email",
+                "email must be a valid email address",
+            ))
+        }
     }
 
     pub fn as_str(&self) -> &str {
@@ -84,8 +98,13 @@ impl LoyaltyTier {
     }
 
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        Self::ALL
+            .into_iter()
+            .find(|tier| tier.as_str() == raw)
+            .ok_or(InvalidField::new(
+                "loyalty_tier",
+                "loyalty_tier must be Standard, Silver or Gold",
+            ))
     }
 }
 
@@ -110,7 +129,17 @@ pub struct NewClient {
 impl NewClient {
     /// Audit changes for the creation: every set field, including the starting tier.
     pub fn changes(&self) -> Vec<FieldChange> {
-        todo!()
+        let mut changes = vec![
+            FieldChange::created("name", &self.name),
+            FieldChange::created("phone", &self.phone),
+        ];
+        changes.extend(
+            self.email
+                .as_ref()
+                .map(|email| FieldChange::created("email", email)),
+        );
+        changes.push(FieldChange::created("loyalty_tier", LoyaltyTier::default()));
+        changes
     }
 }
 
@@ -126,15 +155,34 @@ impl Client {
     /// Applies `patch` and returns the updated client with one change per changed field.
     #[must_use]
     pub fn update(&self, patch: ClientPatch) -> (Self, Vec<FieldChange>) {
-        let _ = patch;
-        todo!()
+        let updated = Self {
+            name: patch.name.unwrap_or_else(|| self.name.clone()),
+            phone: patch.phone.unwrap_or_else(|| self.phone.clone()),
+            email: patch.email.unwrap_or_else(|| self.email.clone()),
+            ..self.clone()
+        };
+        let changes = [
+            FieldChange::diff("name", &self.name, &updated.name),
+            FieldChange::diff("phone", &self.phone, &updated.phone),
+            FieldChange::diff_optional("email", self.email.as_ref(), updated.email.as_ref()),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        (updated, changes)
     }
 
     /// Sets the loyalty tier. Order spend never calls this (REQ-F-017).
     #[must_use]
     pub fn set_loyalty_tier(&self, tier: LoyaltyTier) -> (Self, Vec<FieldChange>) {
-        let _ = tier;
-        todo!()
+        let updated = Self {
+            loyalty_tier: tier,
+            ..self.clone()
+        };
+        let changes = FieldChange::diff("loyalty_tier", &self.loyalty_tier, &tier)
+            .into_iter()
+            .collect();
+        (updated, changes)
     }
 }
 

@@ -2,8 +2,11 @@
 
 mod audit;
 mod auth;
+mod clients;
+mod devices;
 mod error;
 mod json;
+mod orders;
 mod params;
 mod sessions;
 mod staff;
@@ -39,6 +42,9 @@ pub fn router(state: AppState) -> Router {
     let api = Router::new()
         .merge(sessions::routes())
         .merge(staff::routes())
+        .merge(clients::routes())
+        .merge(devices::routes())
+        .merge(orders::routes())
         .merge(audit::routes());
 
     let router = Router::new()
