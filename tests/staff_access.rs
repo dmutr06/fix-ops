@@ -443,6 +443,203 @@ async fn update_of_unknown_staff_account_is_not_found(pool: PgPool) {
         .expect_error(StatusCode::NOT_FOUND, "NOT_FOUND");
 }
 
+// --- Last enabled Administrator (REQ-F-020, BDD-021) ---
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn last_enabled_administrator_cannot_demote_or_disable(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let id = admin_id(&app).await;
+    let audit_before: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+
+    for change in [
+        json!({ "role": "Receptionist" }),
+        json!({ "enabled": false }),
+        json!({ "role": "Receptionist", "enabled": false }),
+    ] {
+        app.patch(&format!("/api/v1/staff/{id}"))
+            .token(&admin)
+            .json(&change)
+            .send()
+            .await
+            .expect_error(StatusCode::CONFLICT, "CONFLICT");
+    }
+
+    let row: (String, bool) =
+        sqlx::query_as("SELECT role, enabled FROM staff_accounts WHERE id = $1")
+            .bind(id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(row, ("Administrator".to_owned(), true));
+    let sessions: i64 = sqlx::query_scalar("SELECT count(*) FROM sessions WHERE staff_id = $1")
+        .bind(id)
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(sessions, 1);
+    let audit_after: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(audit_after, audit_before);
+    staff_list(&app, &admin).await;
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn disabled_administrator_does_not_satisfy_last_admin_guard(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let id = admin_id(&app).await;
+    let second = app
+        .create_staff(&admin, "second.admin", "Administrator")
+        .await;
+    app.patch(&format!("/api/v1/staff/{second}"))
+        .token(&admin)
+        .json(&json!({ "enabled": false }))
+        .send()
+        .await
+        .expect(StatusCode::OK);
+
+    app.patch(&format!("/api/v1/staff/{id}"))
+        .token(&admin)
+        .json(&json!({ "enabled": false }))
+        .send()
+        .await
+        .expect_error(StatusCode::CONFLICT, "CONFLICT");
+    staff_list(&app, &admin).await;
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn another_enabled_administrator_allows_demotion(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let id = admin_id(&app).await;
+    app.create_staff(&admin, "second.admin", "Administrator")
+        .await;
+
+    app.patch(&format!("/api/v1/staff/{id}"))
+        .token(&admin)
+        .json(&json!({ "role": "Receptionist" }))
+        .send()
+        .await
+        .expect(StatusCode::OK);
+    let row: (String, bool) =
+        sqlx::query_as("SELECT role, enabled FROM staff_accounts WHERE id = $1")
+            .bind(id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
+    assert_eq!(row, ("Receptionist".to_owned(), true));
+    app.get("/api/v1/staff")
+        .token(&admin)
+        .send()
+        .await
+        .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+    assert_eq!(
+        audit_log(
+            &app,
+            &admin,
+            &format!("?record_type=StaffAccount&record_id={id}")
+        )
+        .await
+        .len(),
+        5
+    );
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn promotion_restores_administrator_access(pool: PgPool) {
+    use fixops_domain::id::StaffId;
+    use fixops_domain::staff::{Actor, Role};
+
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let admin_id = admin_id(&app).await;
+    let target = app
+        .create_staff(&admin, "recovery.admin", "Receptionist")
+        .await;
+    sqlx::query("UPDATE staff_accounts SET enabled = false WHERE id = $1")
+        .bind(admin_id)
+        .execute(&app.pool)
+        .await
+        .unwrap();
+
+    app.app()
+        .update_staff(
+            Actor {
+                id: StaffId(admin_id),
+                role: Role::Administrator,
+            },
+            StaffId(target),
+            Some(Role::Administrator),
+            None,
+        )
+        .await
+        .expect("promotion is allowed when there are no enabled Administrators");
+
+    let enabled_admins: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM staff_accounts WHERE role = 'Administrator' AND enabled",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(enabled_admins, 1);
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn concurrent_last_administrator_demotions_leave_one_enabled(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let first_token = app.admin_token().await;
+    let first_id = admin_id(&app).await;
+    let second_id = app
+        .create_staff(&first_token, "second.admin", "Administrator")
+        .await;
+    let second_token = app.sign_in("second.admin", PASSWORD).await;
+
+    let first = app
+        .patch(&format!("/api/v1/staff/{first_id}"))
+        .token(&first_token)
+        .json(&json!({ "enabled": false }))
+        .send();
+    let second = app
+        .patch(&format!("/api/v1/staff/{second_id}"))
+        .token(&second_token)
+        .json(&json!({ "enabled": false }))
+        .send();
+    let (first, second) = tokio::join!(first, second);
+    let statuses = [first.status, second.status];
+    assert_eq!(
+        statuses.iter().filter(|s| **s == StatusCode::OK).count(),
+        1,
+        "{statuses:?}"
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|s| **s == StatusCode::CONFLICT)
+            .count(),
+        1,
+        "{statuses:?}"
+    );
+
+    let enabled_admins: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM staff_accounts WHERE role = 'Administrator' AND enabled",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(enabled_admins, 1);
+    let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log WHERE record_type = 'StaffAccount' AND field = 'enabled' AND new_value = 'false'")
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+    assert_eq!(audits, 1);
+}
+
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
 async fn staff_id_must_be_a_positive_integer(pool: PgPool) {
     let app = TestApp::new(pool);
