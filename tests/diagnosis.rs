@@ -361,6 +361,40 @@ async fn invalid_estimates_are_rejected(pool: PgPool) {
 
 // --- Client decision (REQ-F-008) ---
 
+/// REQ-F-008, REQ-NF-003: response, stored decision and audit use the same precision.
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn decision_timestamp_matches_readback_and_audit_at_microsecond_precision(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let s = staff(&app).await;
+    let order = received_order(&app, &s, "Standard").await;
+    diagnose(&app, &s, &order).await;
+    estimate(&app, &s, &order, 10_000, 10_000).await;
+
+    let saved = put(
+        &app,
+        &s.recep,
+        &order,
+        "decision",
+        &json!({
+            "decision": "Approved",
+            "decided_at": "2026-10-21T10:15:00.123456789Z"
+        }),
+    )
+    .await
+    .expect(StatusCode::OK);
+    let reopened = get_order(&app, &s.recep, &order).await;
+    let audit = order_audit(&app, &s.admin, &order).await;
+    let timestamp = &saved["client_decision"]["decided_at"];
+    let audited = audit
+        .iter()
+        .find(|entry| entry["field"] == "client_decision.decided_at")
+        .expect("decision time is audited");
+
+    assert_eq!(timestamp, &reopened["client_decision"]["decided_at"]);
+    assert_eq!(timestamp, &audited["new_value"]);
+    assert_eq!(timestamp, "2026-10-21T10:15:00.123456Z");
+}
+
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
 async fn decision_without_a_valid_time_or_answer_is_rejected(pool: PgPool) {
     let app = TestApp::new(pool);
