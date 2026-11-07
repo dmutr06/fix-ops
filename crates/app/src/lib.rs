@@ -32,3 +32,21 @@ impl<S> App<S> {
 
 /// Result of a use case.
 pub type AppResult<T> = Result<T, AppError>;
+
+/// Checks that `actor` may perform `action`, and records the action on the current request for
+/// the operational log. A denial is logged as `action denied` and returned as `403`.
+pub(crate) fn authorize(
+    actor: fixops_domain::staff::Actor,
+    action: fixops_domain::staff::Action,
+) -> AppResult<()> {
+    tracing::Span::current().record("action", action.operation_id());
+    actor.require(action).inspect_err(|_| {
+        tracing::warn!(
+            actor_id = actor.id.0,
+            role = actor.role.as_str(),
+            action = action.operation_id(),
+            "action denied"
+        );
+    })?;
+    Ok(())
+}

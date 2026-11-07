@@ -25,7 +25,9 @@ impl FromRequestParts<AppState> for SignedIn {
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
         let token = bearer_token(&parts.headers).ok_or_else(AppError::unauthenticated)?;
-        Ok(Self(state.app.authenticate(token).await?))
+        let actor = state.app.authenticate(token).await?;
+        super::trace::record_actor(actor);
+        Ok(Self(actor))
     }
 }
 

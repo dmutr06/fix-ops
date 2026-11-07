@@ -21,6 +21,7 @@ pub(crate) async fn insert_audit(
     changes: &[FieldChange],
 ) -> Result<(), sqlx::Error> {
     let fields: Vec<&str> = changes.iter().map(|c| c.field).collect();
+    let field_list = fields.join(",");
     let previous: Vec<Option<&str>> = changes.iter().map(|c| c.previous.as_deref()).collect();
     let new: Vec<Option<&str>> = changes.iter().map(|c| c.new.as_deref()).collect();
 
@@ -39,6 +40,14 @@ pub(crate) async fn insert_audit(
     .bind(new)
     .execute(conn)
     .await?;
+
+    tracing::info!(
+        actor_id = actor.0,
+        record_type = record_type.as_str(),
+        record_id,
+        fields = %field_list,
+        "record changed"
+    );
     Ok(())
 }
 

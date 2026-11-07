@@ -34,4 +34,5 @@ HTTP tests create a throwaway database per test on the Compose Postgres.
 | `FIXOPS_DB_MAX_CONNECTIONS` | `10` | Pool size |
 | `FIXOPS_BOOTSTRAP_ADMIN_USERNAME` | unset | Username of the first Administrator, created at startup only while no staff account exists |
 | `FIXOPS_BOOTSTRAP_ADMIN_PASSWORD` | unset | Its password, at least 8 characters. Set both variables or neither |
-| `RUST_LOG` | `info,tower_http=debug` | Log filter |
+| `FIXOPS_LOG_DIR` | `var/log` | Daily JSON operational log (`fixops.log.YYYY-MM-DD`) |
+| `RUST_LOG` | `info` | Log filter |

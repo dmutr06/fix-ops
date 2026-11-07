@@ -213,7 +213,7 @@ impl<S: StaffStore + PasswordHasher> App<S> {
     }
 
     pub async fn list_staff(&self, actor: Actor) -> AppResult<Vec<StaffAccount>> {
-        actor.require(Action::ListStaffAccounts)?;
+        crate::authorize(actor, Action::ListStaffAccounts)?;
         Ok(self.store.list_staff().await?)
     }
 
@@ -222,7 +222,7 @@ impl<S: StaffStore + PasswordHasher> App<S> {
         actor: Actor,
         account: NewStaffAccount,
     ) -> AppResult<StaffAccount> {
-        actor.require(Action::CreateStaffAccount)?;
+        crate::authorize(actor, Action::CreateStaffAccount)?;
         let hash = self.store.hash_password(&account.password).await?;
         self.store
             .create_staff(actor.id, &account, &hash, &account.changes())
@@ -238,7 +238,7 @@ impl<S: StaffStore + PasswordHasher> App<S> {
         role: Option<Role>,
         enabled: Option<bool>,
     ) -> AppResult<StaffAccount> {
-        actor.require(Action::UpdateStaffAccount)?;
+        crate::authorize(actor, Action::UpdateStaffAccount)?;
         let current = self
             .store
             .find_staff(id)

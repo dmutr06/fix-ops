@@ -2,17 +2,11 @@ use anyhow::Context;
 use fixops::config::Config;
 use fixops::{AppState, router};
 use fixops_infra::{MIGRATOR, PgStore};
-use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,tower_http=debug".into()),
-        )
-        .init();
-
     let config = Config::from_env()?;
+    let _log_guard = fixops::telemetry::init(&config.log_dir);
     let pool = fixops_infra::connect(&config.database_url, config.db_max_connections)
         .await
         .context("cannot connect to the database")?;
