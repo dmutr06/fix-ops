@@ -65,6 +65,11 @@ impl FieldChange {
         Self::new(field, None, Some(new.to_string()))
     }
 
+    /// A change to a secret field. Neither value is logged.
+    pub fn redacted(field: &'static str) -> Self {
+        Self::new(field, None, None)
+    }
+
     /// A change from `previous` to `new`, or `None` when the value did not change.
     pub fn diff<T: PartialEq + ToString>(
         field: &'static str,

@@ -25,10 +25,10 @@ impl Role {
         }
     }
 
-    /// Whether this role may perform `action`. Mirrors `x-roles` in `spec/openapi.yaml`.
-    pub const fn can(self, action: Action) -> bool {
-        let _ = (self, action);
-        todo!()
+    /// Whether this role may perform `action`. Administrator gets its Receptionist and
+    /// Technician actions from the same matrix, not from a bypass (ADD-001).
+    pub fn can(self, action: Action) -> bool {
+        action.roles().contains(&self)
     }
 }
 
@@ -112,10 +112,69 @@ impl Action {
         Self::ListAuditLogs,
     ];
 
+    /// The roles that may perform this action: `x-roles` of its operation in the contract.
+    pub const fn roles(self) -> &'static [Role] {
+        const ANY_STAFF: &[Role] = &[Role::Receptionist, Role::Technician, Role::Administrator];
+        const FRONT_DESK: &[Role] = &[Role::Receptionist, Role::Administrator];
+        const BENCH: &[Role] = &[Role::Technician, Role::Administrator];
+        const ADMINISTRATOR: &[Role] = &[Role::Administrator];
+
+        match self {
+            Self::ListClients
+            | Self::GetClient
+            | Self::ListDevices
+            | Self::GetDevice
+            | Self::ListRepairOrders
+            | Self::GetRepairOrder
+            | Self::ListAuditLogs => ANY_STAFF,
+            Self::CreateClient
+            | Self::UpdateClient
+            | Self::CreateDevice
+            | Self::UpdateDevice
+            | Self::CreateRepairOrder
+            | Self::RecordClientDecision
+            | Self::RecordPayment
+            | Self::RecordPickup
+            | Self::CompleteRepairOrder
+            | Self::CancelRepairOrder => FRONT_DESK,
+            Self::RecordDiagnosis | Self::RecordEstimate | Self::UpdateRepairWork => BENCH,
+            Self::ListStaffAccounts
+            | Self::CreateStaffAccount
+            | Self::UpdateStaffAccount
+            | Self::SetClientLoyaltyTier
+            | Self::CorrectRepairOrder => ADMINISTRATOR,
+        }
+    }
+
     /// The contract `operationId` of this action.
     pub const fn operation_id(self) -> &'static str {
-        let _ = self;
-        todo!()
+        match self {
+            Self::ListStaffAccounts => "listStaffAccounts",
+            Self::CreateStaffAccount => "createStaffAccount",
+            Self::UpdateStaffAccount => "updateStaffAccount",
+            Self::ListClients => "listClients",
+            Self::CreateClient => "createClient",
+            Self::GetClient => "getClient",
+            Self::UpdateClient => "updateClient",
+            Self::SetClientLoyaltyTier => "setClientLoyaltyTier",
+            Self::ListDevices => "listDevices",
+            Self::CreateDevice => "createDevice",
+            Self::GetDevice => "getDevice",
+            Self::UpdateDevice => "updateDevice",
+            Self::ListRepairOrders => "listRepairOrders",
+            Self::CreateRepairOrder => "createRepairOrder",
+            Self::GetRepairOrder => "getRepairOrder",
+            Self::CorrectRepairOrder => "correctRepairOrder",
+            Self::RecordDiagnosis => "recordDiagnosis",
+            Self::RecordEstimate => "recordEstimate",
+            Self::RecordClientDecision => "recordClientDecision",
+            Self::UpdateRepairWork => "updateRepairWork",
+            Self::RecordPayment => "recordPayment",
+            Self::RecordPickup => "recordPickup",
+            Self::CompleteRepairOrder => "completeRepairOrder",
+            Self::CancelRepairOrder => "cancelRepairOrder",
+            Self::ListAuditLogs => "listAuditLogs",
+        }
     }
 }
 
@@ -137,8 +196,14 @@ pub struct Actor {
 impl Actor {
     /// Succeeds when the actor's role may perform `action`.
     pub fn require(self, action: Action) -> Result<(), Denied> {
-        let _ = action;
-        todo!()
+        if self.role.can(action) {
+            Ok(())
+        } else {
+            Err(Denied {
+                role: self.role,
+                action,
+            })
+        }
     }
 }
 
@@ -148,12 +213,18 @@ pub struct Username(String);
 
 impl Username {
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        match raw.trim() {
+            "" => Err(InvalidField::new("username", "username is required")),
+            name => Ok(Self(name.to_owned())),
+        }
     }
 
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    pub fn into_string(self) -> String {
+        self.0
     }
 }
 
@@ -172,8 +243,13 @@ impl Password {
     pub const MIN_CHARS: usize = 8;
 
     pub fn parse(raw: String) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        if raw.chars().count() < Self::MIN_CHARS {
+            return Err(InvalidField::new(
+                "password",
+                "password must be at least 8 characters",
+            ));
+        }
+        Ok(Self(raw))
     }
 
     /// The secret, for hashing only.
@@ -202,8 +278,19 @@ impl StaffAccount {
     /// changes. Values equal to the current ones produce no change.
     #[must_use]
     pub fn update(&self, role: Option<Role>, enabled: Option<bool>) -> (Self, Vec<FieldChange>) {
-        let _ = (role, enabled);
-        todo!()
+        let updated = Self {
+            role: role.unwrap_or(self.role),
+            enabled: enabled.unwrap_or(self.enabled),
+            ..self.clone()
+        };
+        let changes = [
+            FieldChange::diff("role", &self.role, &updated.role),
+            FieldChange::diff("enabled", &self.enabled, &updated.enabled),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        (updated, changes)
     }
 }
 
@@ -218,7 +305,12 @@ pub struct NewStaffAccount {
 impl NewStaffAccount {
     /// Audit changes for the creation: every set field, with the password redacted.
     pub fn changes(&self) -> Vec<FieldChange> {
-        todo!()
+        vec![
+            FieldChange::created("username", &self.username),
+            FieldChange::created("role", self.role),
+            FieldChange::created("enabled", true),
+            FieldChange::redacted("password"),
+        ]
     }
 }
 

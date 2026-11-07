@@ -1,6 +1,10 @@
-//! Adapters for the ports declared in `fixops-app`: PostgreSQL storage via sqlx.
+//! Adapters for the ports declared in `fixops-app`: PostgreSQL storage via sqlx and argon2
+//! password hashing.
 
+mod audit;
 mod error;
+mod password;
+mod staff;
 
 use sqlx::PgPool;
 use sqlx::migrate::Migrator;

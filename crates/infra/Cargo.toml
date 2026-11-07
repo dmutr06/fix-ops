@@ -11,6 +11,8 @@ workspace = true
 [dependencies]
 fixops-app.workspace = true
 fixops-domain.workspace = true
+argon2.workspace = true
 sqlx.workspace = true
 time.workspace = true
+tokio.workspace = true
 tracing.workspace = true

@@ -18,7 +18,21 @@ async fn main() -> anyhow::Result<()> {
         .context("cannot connect to the database")?;
     MIGRATOR.run(&pool).await.context("migrations failed")?;
 
-    let app = router(AppState::new(PgStore::new(pool)));
+    let state = AppState::new(PgStore::new(pool));
+    if let Some(admin) = config.bootstrap_admin {
+        let created = state
+            .app
+            .bootstrap_admin(admin.username, admin.password)
+            .await
+            .context("cannot create the first administrator")?;
+        if let Some(account) = created {
+            tracing::info!(username = %account.username, "created the first administrator");
+        } else {
+            tracing::info!("staff accounts exist, skipping administrator bootstrap");
+        }
+    }
+
+    let app = router(state);
     let listener = tokio::net::TcpListener::bind(config.listen_addr).await?;
     tracing::info!(addr = %config.listen_addr, "listening");
 

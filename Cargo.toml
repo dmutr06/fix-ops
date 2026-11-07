@@ -29,9 +29,13 @@ fixops-app = { path = "crates/app" }
 fixops-infra = { path = "crates/infra" }
 
 anyhow = "1"
+argon2 = "0.6"
 axum = "0.8"
+base64 = "0.22"
+rand = "0.10"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.11"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-none", "postgres", "macros", "migrate", "time"] }
 thiserror = "2"
 time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
