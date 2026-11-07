@@ -1,0 +1,16 @@
+[package]
+name = "fixops-infra"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+fixops-app.workspace = true
+fixops-domain.workspace = true
+sqlx.workspace = true
+time.workspace = true
+tracing.workspace = true

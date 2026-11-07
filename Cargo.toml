@@ -1,16 +1,81 @@
 [package]
-name = "pis"
+name = "fixops"
 version = "0.1.0"
-edition = "2024"
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "fixops"
+path = "src/main.rs"
 
 [[test]]
 name = "prism"
 path = "tests/prism/mod.rs"
 test = false
 
+[workspace]
+members = ["crates/*"]
+resolver = "3"
+default-members = [".", "crates/*"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.90"
+
+[workspace.dependencies]
+fixops-domain = { path = "crates/domain" }
+fixops-app = { path = "crates/app" }
+fixops-infra = { path = "crates/infra" }
+
+anyhow = "1"
+axum = "0.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-none", "postgres", "macros", "migrate", "time"] }
+thiserror = "2"
+time = { version = "0.3", features = ["serde", "formatting", "parsing"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.7", features = ["trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+http-body-util = "0.1"
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+must_use_candidate = "allow"
+# axum handlers and builder helpers take arguments by value by design.
+needless_pass_by_value = "allow"
+
+[lints]
+workspace = true
+
 [dependencies]
+fixops-app.workspace = true
+fixops-domain.workspace = true
+fixops-infra.workspace = true
+anyhow.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
+http-body-util.workspace = true
 openapiv3 = "2"
-serde_json = "1"
 serde_yaml = "0.9"
+sqlx.workspace = true
+tower.workspace = true
