@@ -99,6 +99,9 @@ pub enum StoreError {
     /// The record changed since it was read; the write was not applied.
     #[error("record was changed concurrently")]
     Stale,
+    /// Updating this account would leave no enabled Administrator.
+    #[error("at least one enabled Administrator must remain")]
+    LastEnabledAdministrator,
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -129,6 +132,9 @@ impl From<StoreError> for AppError {
             }
             StoreError::Stale => {
                 Self::guard("Record was changed by another request; reload and retry")
+            }
+            StoreError::LastEnabledAdministrator => {
+                Self::conflict("At least one enabled Administrator must remain")
             }
             StoreError::Other(source) => Self::internal(source),
         }
