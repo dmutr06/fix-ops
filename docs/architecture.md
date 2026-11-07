@@ -111,7 +111,7 @@ Creating an order checks, in this order: the ticket number and ids are valid (`4
 - While an order is open, they are computed from incurred charges and the client's **current** tier, so a tier change before final settlement applies (BDD-015).
 - When the order reaches `Completed` or `Cancelled`, the computed values are stored on the order and stay fixed after that.
 - Discount = labor × rate, rounded half-up to whole cents in integer arithmetic.
-- One domain function, `pricing::current_settlement`, gives both values; the use case returns it with the order (`OrderView`), so the HTTP layer never computes money. It returns the stored values of a terminal order and `0` for a `Received` order. The other open states and the tier discount arrive with the transitions that reach them.
+- One domain function, `pricing::current_settlement`, gives both values; the use case returns it with the order (`OrderView`), so the HTTP layer never computes money. It returns the stored values of a terminal order and `0` for `Received` and `Diagnosing` orders. The cancellation charge after saved findings is applied on cancellation. The other open states and the tier discount arrive with the transitions that reach them.
 
 ### Concurrency
 
