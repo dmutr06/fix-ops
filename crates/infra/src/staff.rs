@@ -168,6 +168,38 @@ impl StaffStore for PgStore {
         end_sessions: bool,
     ) -> Result<(), StoreError> {
         let mut tx = self.pool().begin().await.map_err(store_error)?;
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+            .execute(&mut *tx)
+            .await
+            .map_err(store_error)?;
+        let current: Option<(String, bool)> =
+            sqlx::query_as("SELECT role, enabled FROM staff_accounts WHERE id = $1 FOR UPDATE")
+                .bind(account.id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(store_error)?;
+
+        if current.is_some_and(|(role, enabled)| role == "Administrator" && enabled)
+            && (account.role.as_str() != "Administrator" || !account.enabled)
+        {
+            sqlx::query("SELECT pg_advisory_xact_lock($1)")
+                .bind(0x4649_584f_5053_i64)
+                .execute(&mut *tx)
+                .await
+                .map_err(store_error)?;
+            let other_enabled_admins: i64 = sqlx::query_scalar(
+                "SELECT count(*) FROM staff_accounts
+                 WHERE id <> $1 AND role = 'Administrator' AND enabled",
+            )
+            .bind(account.id.0)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(store_error)?;
+            if other_enabled_admins == 0 {
+                return Err(StoreError::LastEnabledAdministrator);
+            }
+        }
+
         sqlx::query("UPDATE staff_accounts SET role = $2, enabled = $3 WHERE id = $1")
             .bind(account.id.0)
             .bind(account.role.as_str())

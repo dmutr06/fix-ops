@@ -454,6 +454,12 @@ async fn last_enabled_administrator_cannot_demote_or_disable(pool: PgPool) {
         .fetch_one(&app.pool)
         .await
         .unwrap();
+    let sessions_before: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM sessions WHERE staff_id = $1")
+            .bind(id)
+            .fetch_one(&app.pool)
+            .await
+            .unwrap();
 
     for change in [
         json!({ "role": "Receptionist" }),
@@ -480,7 +486,7 @@ async fn last_enabled_administrator_cannot_demote_or_disable(pool: PgPool) {
         .fetch_one(&app.pool)
         .await
         .unwrap();
-    assert_eq!(sessions, 1);
+    assert_eq!(sessions, sessions_before);
     let audit_after: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_log")
         .fetch_one(&app.pool)
         .await
