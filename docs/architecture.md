@@ -104,6 +104,8 @@ Every line inside a request carries the `request` span: `request_id` (from `x-re
 
 Creating an order checks, in this order: the ticket number and ids are valid (`400`); the client, device and assignee exist (`404`, `details.field` names the link); then `NewRepairOrder::intake` requires the device to belong to the client and the assignee to have the `Technician` role (`409 CONFLICT`, `details.field`); finally a taken ticket number is `409 CONFLICT` with `details.ticket_number`. An Administrator can perform Technician actions but is not a Technician, so it cannot be the assignee. A composite foreign key `(device_id, client_id) → devices (id, client_id)` keeps the device-client link true in the database as well.
 
+The insertion transaction locks and rechecks the assigned Technician's role through commit. An intervening role change rejects the stale intake without creating an order or audit entries.
+
 ### Settlement
 
 `labor_discount_cents` and `settlement_cents` are derived, never entered:
@@ -113,9 +115,13 @@ Creating an order checks, in this order: the ticket number and ids are valid (`4
 - Discount = labor × rate, rounded half-up to whole cents in integer arithmetic.
 - One domain function, `pricing::current_settlement`, gives both values; the use case returns it with the order (`OrderView`), so the HTTP layer never computes money. It returns the stored values of a terminal order and `0` for `Received` and `Diagnosing` orders. The cancellation charge after saved findings is applied on cancellation. The other open states and the tier discount arrive with the transitions that reach them.
 
+Terminal corrections retain the stored settlement when the pricing inputs for the cancellation or completion stage are unchanged. Corrections to pricing inputs recalculate settlement and still enforce payment and lifecycle guards.
+
 ### Concurrency
 
 Clients, devices and orders carry a `version` column. Each update is `UPDATE … WHERE id = $1 AND version = $2`, increments the version, and zero updated rows returns `StoreError::Stale`. Two staff saving the same record at once cannot silently overwrite each other. A stale write commits neither the record nor its audit rows.
+
+Staff updates lock the account row and compare its role and enabled state with the snapshot read by the use case. A stale snapshot is rejected before any account, session, or audit write. Removing an enabled Administrator also takes the shared transaction advisory lock before counting remaining enabled Administrators.
 
 ## Sessions
 
