@@ -23,7 +23,7 @@ macro_rules! columns {
         "id, ticket_number, client_id, device_id, assigned_technician_id, status,
          diagnostic_findings, estimate_parts_cents, estimate_labor_cents, client_decision,
          client_decided_at, used_parts_cents, completed_labor_cents, repair_checked,
-         payment_cents, paid_at, picked_up_at, labor_discount_cents, settlement_cents, version"
+         payment_cents, paid_at, picked_up_at, labor_discount_cents, settlement_cents, cancelled_from, version"
     };
 }
 
@@ -48,6 +48,7 @@ struct OrderRow {
     picked_up_at: Option<OffsetDateTime>,
     labor_discount_cents: Option<i64>,
     settlement_cents: Option<i64>,
+    cancelled_from: Option<String>,
     version: i64,
 }
 
@@ -108,6 +109,12 @@ impl TryFrom<OrderRow> for RepairOrder {
             payment,
             picked_up_at: row.picked_up_at,
             final_settlement,
+            cancelled_from: row
+                .cancelled_from
+                .as_deref()
+                .map(OrderStatus::parse)
+                .transpose()
+                .map_err(decode_error)?,
             version: row.version,
         })
     }
@@ -157,19 +164,30 @@ impl OrderStore for PgStore {
         changes: &[FieldChange],
     ) -> Result<(), StoreError> {
         let mut tx = self.pool().begin().await.map_err(store_error)?;
-        let result = sqlx::query("UPDATE repair_orders SET status = $3, diagnostic_findings = $4, estimate_parts_cents = $5, estimate_labor_cents = $6, client_decision = $7, client_decided_at = $8, used_parts_cents = $9, completed_labor_cents = $10, repair_checked = $11, version = version + 1 WHERE id = $1 AND version = $2")
-            .bind(order.id.0).bind(order.version).bind(order.status.as_str())
-            .bind(order.diagnostic_findings.as_ref().map(DiagnosticFindings::as_str))
-            .bind(order.estimate.map(|e| e.parts.get())).bind(order.estimate.map(|e| e.labor.get()))
-            .bind(order.client_decision.map(|d| d.decision.as_str())).bind(order.client_decision.map(|d| d.decided_at))
-            .bind(order.used_parts.get()).bind(order.completed_labor.get()).bind(order.repair_checked)
-            .execute(&mut *tx).await.map_err(store_error)?;
-        if result.rows_affected() == 0 {
+        save_order(&mut tx, actor, order, changes).await?;
+        tx.commit().await.map_err(store_error)
+    }
+
+    async fn settle_order(
+        &self,
+        actor: StaffId,
+        order: &RepairOrder,
+        client_version: i64,
+        changes: &[FieldChange],
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool().begin().await.map_err(store_error)?;
+        // This lock conflicts with client UPDATE and stays held through the order/audit commit.
+        // A version check without the lock would leave a tier-change race after the read.
+        let version: Option<i64> =
+            sqlx::query_scalar("SELECT version FROM clients WHERE id = $1 FOR UPDATE")
+                .bind(order.client_id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(store_error)?;
+        if version != Some(client_version) {
             return Err(StoreError::Stale);
         }
-        insert_audit(&mut tx, actor, RecordType::RepairOrder, order.id.0, changes)
-            .await
-            .map_err(store_error)?;
+        save_order(&mut tx, actor, order, changes).await?;
         tx.commit().await.map_err(store_error)
     }
 
@@ -205,5 +223,172 @@ impl OrderStore for PgStore {
         .into_iter()
         .map(|row| RepairOrder::try_from(row).map_err(store_error))
         .collect()
+    }
+}
+
+/// The common versioned order write, including its audit, inside the caller's transaction.
+async fn save_order(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    actor: StaffId,
+    order: &RepairOrder,
+    changes: &[FieldChange],
+) -> Result<(), StoreError> {
+    let result = sqlx::query("UPDATE repair_orders SET status = $3, diagnostic_findings = $4, estimate_parts_cents = $5, estimate_labor_cents = $6, client_decision = $7, client_decided_at = $8, used_parts_cents = $9, completed_labor_cents = $10, repair_checked = $11, payment_cents = $12, paid_at = $13, picked_up_at = $14, labor_discount_cents = $15, settlement_cents = $16, cancelled_from = $17, version = version + 1 WHERE id = $1 AND version = $2")
+        .bind(order.id.0).bind(order.version).bind(order.status.as_str())
+        .bind(order.diagnostic_findings.as_ref().map(DiagnosticFindings::as_str))
+        .bind(order.estimate.map(|e| e.parts.get())).bind(order.estimate.map(|e| e.labor.get()))
+        .bind(order.client_decision.map(|d| d.decision.as_str())).bind(order.client_decision.map(|d| d.decided_at))
+        .bind(order.used_parts.get()).bind(order.completed_labor.get()).bind(order.repair_checked)
+        .bind(order.payment.map(|p| p.amount.get())).bind(order.payment.map(|p| p.paid_at))
+        .bind(order.picked_up_at).bind(order.final_settlement.map(|s| s.labor_discount.get()))
+        .bind(order.final_settlement.map(|s| s.total.get())).bind(order.cancelled_from.map(OrderStatus::as_str))
+        .execute(&mut **tx).await.map_err(store_error)?;
+    if result.rows_affected() == 0 {
+        return Err(StoreError::Stale);
+    }
+    insert_audit(tx, actor, RecordType::RepairOrder, order.id.0, changes)
+        .await
+        .map_err(store_error)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use fixops_domain::client::LoyaltyTier;
+    use sqlx::PgPool;
+    use std::time::{Duration, Instant};
+
+    /// A tier UPDATE that already holds the client lock must finish before settlement
+    /// validates its snapshot. Merely reading the version without a lock fails this test.
+    #[sqlx::test(migrator = "crate::MIGRATOR")]
+    async fn settlement_waits_for_concurrent_tier_update(pool: PgPool) {
+        let actor: i64 = sqlx::query_scalar("INSERT INTO staff_accounts (username, password_hash, role) VALUES ('tech', 'unused', 'Technician') RETURNING id")
+            .fetch_one(&pool).await.unwrap();
+        let client: i64 = sqlx::query_scalar(
+            "INSERT INTO clients (name, phone) VALUES ('Bob', '123') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let device: i64 = sqlx::query_scalar("INSERT INTO devices (client_id, device_type, serial_number, reported_symptoms) VALUES ($1, 'Laptop', 'SN1', 'No power') RETURNING id")
+            .bind(client).fetch_one(&pool).await.unwrap();
+        let store = PgStore::new(pool.clone());
+        let order = store
+            .create_order(
+                StaffId(actor),
+                &NewRepairOrder {
+                    ticket_number: TicketNumber::parse("T1").unwrap(),
+                    client_id: ClientId(client),
+                    device_id: DeviceId(device),
+                    assigned_technician_id: StaffId(actor),
+                },
+                &[FieldChange::created("status", OrderStatus::Received)],
+            )
+            .await
+            .unwrap();
+        let (cancelled, changes) = order.cancel(LoyaltyTier::Standard).unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE clients SET loyalty_tier = 'Gold', version = version + 1 WHERE id = $1",
+        )
+        .bind(client)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        let writer = store.clone();
+        let task = tokio::spawn(async move {
+            writer
+                .settle_order(StaffId(actor), &cancelled, 0, &changes)
+                .await
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let waiting: bool = sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid)))")
+                .bind(pid).fetch_one(&pool).await.unwrap();
+            if waiting {
+                break;
+            }
+            assert!(
+                !task.is_finished(),
+                "settlement passed an uncommitted tier change"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "settlement did not wait on the client lock"
+            );
+            tokio::task::yield_now().await;
+        }
+        tx.commit().await.unwrap();
+        let result = task.await.unwrap();
+        assert!(matches!(result, Err(StoreError::Stale)), "{result:?}");
+        assert_eq!(store.find_order(order.id).await.unwrap().unwrap(), order);
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_log WHERE record_type = 'RepairOrder' AND record_id = $1",
+        )
+        .bind(order.id.0)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[sqlx::test(migrator = "crate::MIGRATOR")]
+    async fn cancellation_source_migration_recovers_history_without_guessing(pool: PgPool) {
+        let actor: i64 = sqlx::query_scalar("INSERT INTO staff_accounts (username, password_hash, role) VALUES ('tech', 'unused', 'Technician') RETURNING id")
+            .fetch_one(&pool).await.unwrap();
+        let client: i64 = sqlx::query_scalar(
+            "INSERT INTO clients (name, phone) VALUES ('Bob', '123') RETURNING id",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let device: i64 = sqlx::query_scalar("INSERT INTO devices (client_id, device_type, serial_number, reported_symptoms) VALUES ($1, 'Laptop', 'SN1', 'No power') RETURNING id")
+            .bind(client).fetch_one(&pool).await.unwrap();
+        let store = PgStore::new(pool.clone());
+        let mut orders = Vec::new();
+        for ticket in ["T1", "T2"] {
+            orders.push(
+                store
+                    .create_order(
+                        StaffId(actor),
+                        &NewRepairOrder {
+                            ticket_number: TicketNumber::parse(ticket).unwrap(),
+                            client_id: ClientId(client),
+                            device_id: DeviceId(device),
+                            assigned_technician_id: StaffId(actor),
+                        },
+                        &[FieldChange::created("status", OrderStatus::Received)],
+                    )
+                    .await
+                    .unwrap(),
+            );
+        }
+
+        sqlx::query("ALTER TABLE repair_orders DROP CONSTRAINT repair_orders_cancellation_source_check, DROP COLUMN cancelled_from")
+            .execute(&pool).await.unwrap();
+        for (index, order) in orders.iter().enumerate() {
+            sqlx::query("UPDATE repair_orders SET status = 'Cancelled', labor_discount_cents = 0, settlement_cents = 0 WHERE id = $1")
+                .bind(order.id.0).execute(&pool).await.unwrap();
+            if index == 0 {
+                sqlx::query("INSERT INTO audit_log (actor_id, record_type, record_id, field, previous_value, new_value) VALUES ($1, 'RepairOrder', $2, 'status', 'Diagnosing', 'Cancelled')")
+                    .bind(actor).bind(order.id.0).execute(&pool).await.unwrap();
+            }
+        }
+
+        sqlx::raw_sql(include_str!("../migrations/20261111000001_cancellation_source.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        let sources: Vec<Option<String>> = sqlx::query_scalar(
+            "SELECT cancelled_from FROM repair_orders ORDER BY ticket_number",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(sources, [Some("Diagnosing".into()), None]);
     }
 }

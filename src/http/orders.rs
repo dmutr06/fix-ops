@@ -3,14 +3,14 @@
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use fixops_app::AppError;
 use fixops_app::orders::{OrderFilter, OrderIntake, OrderView};
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::money::Cents;
 use fixops_domain::order::{
-    ClientDecision, Decision, DiagnosticFindings, Estimate, OrderStatus, RepairStage, RepairWork,
-    TicketNumber,
+    ClientDecision, Decision, DiagnosticFindings, Estimate, OrderStatus, Payment, RepairStage,
+    RepairWork, TicketNumber,
 };
 use fixops_domain::staff::Action;
 use serde::{Deserialize, Serialize};
@@ -29,6 +29,10 @@ pub fn routes() -> Router<AppState> {
         .route("/orders/{orderId}/estimate", put(estimate))
         .route("/orders/{orderId}/decision", put(decision))
         .route("/orders/{orderId}/repair", put(repair))
+        .route("/orders/{orderId}/payment", put(payment))
+        .route("/orders/{orderId}/pickup", put(pickup))
+        .route("/orders/{orderId}/complete", post(complete))
+        .route("/orders/{orderId}/cancel", post(cancel))
 }
 
 /// Contract `RepairOrder`. Every field is always present; unrecorded values are `null`.
@@ -318,5 +322,84 @@ async fn repair(
             .update_repair_work(actor, OrderId(id), work)
             .await?
             .into(),
+    ))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PaymentRequest {
+    amount_cents: i64,
+    #[serde(with = "time::serde::rfc3339")]
+    paid_at: OffsetDateTime,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PickupRequest {
+    #[serde(with = "time::serde::rfc3339")]
+    picked_up_at: OffsetDateTime,
+}
+
+async fn payment(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<PaymentRequest>, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::RecordPayment)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
+    let payment = Payment {
+        amount: Cents::new("amount_cents", body.amount_cents).map_err(AppError::from)?,
+        paid_at: body.paid_at,
+    };
+    Ok(Json(
+        state
+            .app
+            .record_payment(actor, OrderId(id), payment)
+            .await?
+            .into(),
+    ))
+}
+
+async fn pickup(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<PickupRequest>, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::RecordPickup)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
+    Ok(Json(
+        state
+            .app
+            .record_pickup(actor, OrderId(id), body.picked_up_at)
+            .await?
+            .into(),
+    ))
+}
+
+async fn complete(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::CompleteRepairOrder)?;
+    let PathId(id) = id?;
+    Ok(Json(
+        state.app.complete_order(actor, OrderId(id)).await?.into(),
+    ))
+}
+
+async fn cancel(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::CancelRepairOrder)?;
+    let PathId(id) = id?;
+    Ok(Json(
+        state.app.cancel_order(actor, OrderId(id)).await?.into(),
     ))
 }

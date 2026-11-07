@@ -49,7 +49,17 @@ impl IntoResponse for ApiError {
         let details = err
             .details
             .into_iter()
-            .map(|(key, value)| (key.to_owned(), value.into()))
+            .map(|(key, value)| {
+                let value = if matches!(key, "paid_cents" | "settlement_cents") {
+                    match value.parse::<i64>() {
+                        Ok(amount) => amount.into(),
+                        Err(_) => value.into(),
+                    }
+                } else {
+                    value.into()
+                };
+                (key.to_owned(), value)
+            })
             .collect();
         let body = ErrorResponse {
             code,
