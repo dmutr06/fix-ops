@@ -694,6 +694,45 @@ pub(crate) mod tests {
         }
     }
 
+    #[test]
+    fn corrections_validate_the_combined_candidate_without_mutating_current() {
+        let current = received();
+        let mut candidate = current.clone();
+        candidate.status = OrderStatus::Diagnosing;
+        candidate.diagnostic_findings = Some(DiagnosticFindings::parse("Power failure").unwrap());
+        candidate.estimate = Some(Estimate {
+            parts: Cents::ZERO,
+            labor: Cents::ZERO,
+        });
+        let (saved, changes) = current.correct(candidate, LoyaltyTier::Standard).unwrap();
+        assert_eq!(current, received());
+        assert_eq!(saved.status, OrderStatus::Diagnosing);
+        assert!(changes.iter().any(|c| c.field == "estimate.parts_cents"));
+        let mut invalid = saved.clone();
+        invalid.diagnostic_findings = None;
+        assert_eq!(
+            saved.correct(invalid, LoyaltyTier::Standard),
+            Err(GuardViolation::FindingsMissing)
+        );
+    }
+
+    #[test]
+    fn legacy_cancellation_allows_metadata_but_never_guesses_pricing_source() {
+        let (mut current, _) = received().cancel(LoyaltyTier::Standard).unwrap();
+        current.cancelled_from = None;
+        let mut metadata = current.clone();
+        metadata.ticket_number = TicketNumber::parse("CORRECTED").unwrap();
+        let (saved, _) = current.correct(metadata, LoyaltyTier::Gold).unwrap();
+        assert_eq!(saved.final_settlement, current.final_settlement);
+        assert_eq!(saved.cancelled_from, None);
+        let mut financial = saved.clone();
+        financial.completed_labor = Cents::new("completed_labor_cents", 1).unwrap();
+        assert!(saved.correct(financial, LoyaltyTier::Gold).is_err());
+        let mut findings = saved.clone();
+        findings.diagnostic_findings = Some(DiagnosticFindings::parse("New evidence").unwrap());
+        assert!(saved.correct(findings, LoyaltyTier::Gold).is_err());
+    }
+
     fn client(id: i64) -> Client {
         Client {
             id: ClientId(id),
