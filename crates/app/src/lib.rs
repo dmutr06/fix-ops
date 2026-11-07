@@ -6,6 +6,7 @@
 //! hands the result plus its audit entries to the store in one call.
 
 pub mod error;
+pub mod staff;
 
 pub use error::{AppError, ErrorKind, StoreError};
 
