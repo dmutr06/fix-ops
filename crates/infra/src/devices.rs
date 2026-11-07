@@ -20,6 +20,13 @@ struct DeviceRow {
     reported_symptoms: String,
 }
 
+#[derive(FromRow)]
+struct VersionedDeviceRow {
+    #[sqlx(flatten)]
+    device: DeviceRow,
+    version: i64,
+}
+
 impl TryFrom<DeviceRow> for Device {
     type Error = sqlx::Error;
 
@@ -96,7 +103,16 @@ impl DeviceStore for PgStore {
         &self,
         id: DeviceId,
     ) -> Result<Option<(Device, i64)>, StoreError> {
-        Ok(self.find_device(id).await?.map(|device| (device, 0)))
+        let row = sqlx::query_as::<_, VersionedDeviceRow>(
+            "SELECT id, client_id, device_type, serial_number, reported_symptoms, version
+             FROM devices WHERE id = $1",
+        )
+        .bind(id.0)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(store_error)?;
+        row.map(|row| Ok((row.device.try_into().map_err(store_error)?, row.version)))
+            .transpose()
     }
 
     async fn update_device(
@@ -106,19 +122,25 @@ impl DeviceStore for PgStore {
         version: i64,
         changes: &[FieldChange],
     ) -> Result<(), StoreError> {
-        let _ = version;
         let mut tx = self.pool().begin().await.map_err(store_error)?;
-        sqlx::query(
-            "UPDATE devices SET device_type = $2, serial_number = $3, reported_symptoms = $4
-             WHERE id = $1",
+        let updated = sqlx::query(
+            "UPDATE devices
+             SET device_type = $3, serial_number = $4, reported_symptoms = $5,
+                 version = version + 1
+             WHERE id = $1 AND version = $2",
         )
         .bind(device.id.0)
+        .bind(version)
         .bind(device.device_type.as_str())
         .bind(device.serial_number.as_str())
         .bind(device.reported_symptoms.as_str())
         .execute(&mut *tx)
         .await
         .map_err(store_error)?;
+        // Dropping the transaction rolls it back, so a stale save writes nothing.
+        if updated.rows_affected() == 0 {
+            return Err(StoreError::Stale);
+        }
         insert_audit(&mut tx, actor, RecordType::Device, device.id.0, changes)
             .await
             .map_err(store_error)?;
