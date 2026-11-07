@@ -38,6 +38,7 @@ sequenceDiagram
     participant S as PgStore (infra)
     C->>H: HTTP + Bearer token
     H->>S: resolve session → Actor
+    H->>H: app.authorize(actor, Action) — 403 before the body is read
     H->>U: call with Actor and parsed input
     U->>U: authorize(actor, Action) — 403 before anything else
     U->>S: load records
@@ -49,8 +50,8 @@ sequenceDiagram
 ```
 
 1. **Authenticate.** The `Actor` extractor reads `Authorization: Bearer <token>`, hashes it, and looks up an unexpired session of an enabled account. Missing or unknown token → `401 UNAUTHENTICATED`. Every protected handler takes `Actor`, so there is no unauthenticated path to records (REQ-F-001).
-2. **Authorize.** The first line of every use case is `crate::authorize(actor, Action::…)?`, which wraps `Actor::require` and records the action in the log. The role matrix is one function in `fixops-domain` (`Role::can`) and mirrors `x-roles` in the contract. Administrator gets every Receptionist and Technician action through that matrix, not through a bypass, so guards still apply (ADD-001).
-3. **Validate.** DTOs only handle JSON shape: types, enums, unknown fields (`#[serde(deny_unknown_fields)]`). Business values are built through domain constructors (`ClientName::parse`, `Cents::new`, …) that return a domain error naming the field. The app layer maps it to `400 VALIDATION_ERROR`.
+2. **Authorize.** A handler that takes path parameters or a body extracts them as `Result<PathId, ApiError>` and `Result<Json<T>, ApiError>`, calls `state.app.authorize(actor, Action::…)?` first, and only then unwraps them and builds domain values. The order of answers is therefore always `401` → `403` → `400` → `404`/`409`, so a denied role never learns the validation rules (ADD-002 §2). As defense in depth, the first line of every use case is `crate::authorize(actor, Action::…)?`, which wraps `Actor::require` and records the action in the log. The role matrix is one function in `fixops-domain` (`Role::can`) and mirrors `x-roles` in the contract. Administrator gets every Receptionist and Technician action through that matrix, not through a bypass, so guards still apply (ADD-001).
+3. **Validate.** DTOs only handle JSON shape: types, enums, unknown fields (`#[serde(deny_unknown_fields)]`), and `null` in optional fields the contract does not mark `nullable` (`#[serde(default, deserialize_with = "json::not_null")]`). Business values are built through domain constructors (`ClientName::parse`, `Cents::new`, …) that return a domain error naming the field. The app layer maps it to `400 VALIDATION_ERROR`.
 4. **Apply the rule.** Domain methods take the current record and return the new one plus the list of `FieldChange`s, or a domain error. They never half-apply.
 5. **Persist with audit.** The store writes the record and its audit entries in one transaction. A rejected action never reaches the store, so it changes nothing.
 
@@ -71,7 +72,7 @@ Rules:
 
 - Store write methods take the audit changes as an argument and insert them in the same transaction. There is no way to write a record without passing its changes.
 - Passwords are never logged: a password change is audited as `field = "password"` with both values `NULL`.
-- Audit rows are append-only. No code updates or deletes them.
+- Audit rows are append-only. No code updates or deletes them, and database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE` on `audit_log`.
 
 ## Logging
 
@@ -113,7 +114,7 @@ Orders carry a `version` column. Each update is `UPDATE … WHERE id = $1 AND ve
 ## Sessions
 
 - `POST /api/v1/sessions` checks the password with argon2 and issues 32 random bytes, base64url-encoded. Only the SHA-256 hash is stored, with a 12-hour expiry.
-- An unknown username and a wrong password get the same `401`. A disabled account gets `403` only after its password matched, so neither answer reveals which accounts exist.
+- An unknown username and a wrong password get the same `401` after the same argon2 work: without an account the hasher checks a dummy hash with the same parameters, so the response time does not reveal the username either. A disabled account gets `403` only after its password matched, so neither answer reveals which accounts exist.
 - Password hashing is a port (`PasswordHasher`) like the stores, and `PgStore` implements it with argon2 on the blocking thread pool. The HTTP layer still holds one `App<PgStore>`.
 - Disabling an account deletes its sessions in the same transaction, so access ends at once (REQ-F-019). A role change applies from the next request, because every request reads the account's current role.
 - The first Administrator is created at startup from `FIXOPS_BOOTSTRAP_ADMIN_USERNAME` and `FIXOPS_BOOTSTRAP_ADMIN_PASSWORD`, only when no staff account exists. Its creation is audited with itself as the actor.
