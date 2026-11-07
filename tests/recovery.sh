@@ -3,24 +3,31 @@ set -euo pipefail
 
 export COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME:-fix-ops}
 db_user=${FIXOPS_DB_USER:-fixops}
-source_db="recovery_src_$$"
-restore_db="recovery_dst_$$"
-failed_restore_db="recovery_bad_$$"
-temporary_dir=$(mktemp -d "${TMPDIR:-/tmp}/fixops-recovery.XXXXXX")
+temporary_dir=$(mktemp -d "${TMPDIR:-/tmp}/fixops-recovery.XXXXXXXXXXXX")
+run_id="${temporary_dir##*.}_$$"
+source_db="recovery_src_$run_id"
+restore_db="recovery_dst_$run_id"
+failed_restore_db="recovery_bad_$run_id"
+source_created=0
+destination_restored=0
 archive="$temporary_dir/recovery.dump"
 invalid_archive="$archive.invalid"
 preserved_backup="$archive.preserved"
 failed_backup="$archive.failed"
 
 cleanup() {
-    docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$source_db" >/dev/null
-    docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$restore_db" >/dev/null
-    docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$failed_restore_db" >/dev/null
+    if [[ $source_created -eq 1 ]]; then
+        docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$source_db" >/dev/null
+    fi
+    if [[ $destination_restored -eq 1 ]]; then
+        docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$restore_db" >/dev/null
+    fi
     rm -rf "$temporary_dir"
 }
 trap cleanup EXIT
 
 docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db createdb -U "$db_user" "$source_db"
+source_created=1
 docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db psql -U "$db_user" -d "$source_db" -v ON_ERROR_STOP=1 <<'SQL'
 CREATE TABLE staff_accounts (id bigint PRIMARY KEY);
 CREATE TABLE clients (id bigint PRIMARY KEY, name text NOT NULL);
@@ -39,6 +46,7 @@ SQL
 
 FIXOPS_DB_NAME="$source_db" scripts/backup.sh "$archive"
 FIXOPS_DB_NAME="$source_db" scripts/restore.sh "$archive" "$restore_db"
+destination_restored=1
 
 actual=$(docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db psql -U "$db_user" -d "$restore_db" -At -v ON_ERROR_STOP=1 \
     -c "SELECT c.name || '|' || a.actor_id || '|' || a.field || '|' || a.new_value FROM clients c JOIN audit_log a ON a.record_id = c.id")
