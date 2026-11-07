@@ -647,6 +647,104 @@ async fn concurrent_last_administrator_demotions_leave_one_enabled(pool: PgPool)
 }
 
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn concurrent_cross_demotions_return_conflict_without_deadlock(pool: PgPool) {
+    use fixops_domain::id::StaffId;
+    use fixops_domain::staff::{Actor, Role};
+    use std::sync::Arc;
+
+    let app = TestApp::new(pool);
+    let first_token = app.admin_token().await;
+    let first_id = admin_id(&app).await;
+    let second_id = app
+        .create_staff(&first_token, "second.admin", "Administrator")
+        .await;
+    let mut blocker = app.pool.begin().await.unwrap();
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(0x4649_584f_5053_i64)
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+
+    let app = Arc::new(app);
+    let first_app = Arc::clone(&app);
+    let first = tokio::spawn(async move {
+        first_app
+            .app()
+            .update_staff(
+                Actor {
+                    id: StaffId(first_id),
+                    role: Role::Administrator,
+                },
+                StaffId(second_id),
+                Some(Role::Receptionist),
+                None,
+            )
+            .await
+    });
+    let second_app = Arc::clone(&app);
+    let second = tokio::spawn(async move {
+        second_app
+            .app()
+            .update_staff(
+                Actor {
+                    id: StaffId(second_id),
+                    role: Role::Administrator,
+                },
+                StaffId(first_id),
+                Some(Role::Receptionist),
+                None,
+            )
+            .await
+    });
+
+    let mut both_waiting = false;
+    for _ in 0..100 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND wait_event_type = 'Lock' AND wait_event = 'advisory'",
+        )
+        .fetch_one(&app.pool)
+        .await
+        .unwrap();
+        if waiting == 2 {
+            both_waiting = true;
+            break;
+        }
+        sqlx::query("SELECT pg_sleep(0.05)")
+            .execute(&app.pool)
+            .await
+            .unwrap();
+    }
+    assert!(both_waiting, "both updates reached the advisory lock");
+    blocker.commit().await.unwrap();
+
+    let first = first.await.unwrap();
+    let second = second.await.unwrap();
+    let results = [first, second];
+    assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+    assert_eq!(
+        results
+            .iter()
+            .filter(|result| {
+                result
+                    .as_ref()
+                    .is_err_and(|error| error.kind == fixops_app::ErrorKind::Conflict)
+            })
+            .count(),
+        1,
+        "{results:?}"
+    );
+
+    let enabled_admins: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM staff_accounts WHERE role = 'Administrator' AND enabled",
+    )
+    .fetch_one(&app.pool)
+    .await
+    .unwrap();
+    assert_eq!(enabled_admins, 1);
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
 async fn staff_id_must_be_a_positive_integer(pool: PgPool) {
     let app = TestApp::new(pool);
     let admin = app.admin_token().await;
