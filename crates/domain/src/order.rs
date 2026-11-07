@@ -56,6 +56,19 @@ impl OrderStatus {
     }
 }
 
+impl OrderStatus {
+    /// Whether SRS §3.1 lists `self → next`. This table is the only place transitions are
+    /// allowed; every other pair is rejected, whoever asks (ADD-001).
+    pub const fn can_move_to(self, _next: Self) -> bool {
+        todo!()
+    }
+
+    /// Succeeds when `self → next` is a listed transition.
+    pub fn check_move(self, _next: Self) -> Result<(), GuardViolation> {
+        todo!()
+    }
+}
+
 impl fmt::Display for OrderStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -190,6 +203,37 @@ pub struct RepairOrder {
     pub version: i64,
 }
 
+/// The state `PUT /repair` asks for: start or continue the repair, or finish it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RepairStage {
+    InProgress,
+    Ready,
+}
+
+impl RepairStage {
+    pub const ALL: [Self; 2] = [Self::InProgress, Self::Ready];
+
+    pub const fn status(self) -> OrderStatus {
+        match self {
+            Self::InProgress => OrderStatus::InProgress,
+            Self::Ready => OrderStatus::Ready,
+        }
+    }
+
+    pub fn parse(_raw: &str) -> Result<Self, InvalidField> {
+        todo!()
+    }
+}
+
+/// A repair work update (REQ-F-009–011). `None` keeps a recorded value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RepairWork {
+    pub stage: RepairStage,
+    pub used_parts: Option<Cents>,
+    pub completed_labor: Option<Cents>,
+    pub repair_checked: Option<bool>,
+}
+
 /// A lifecycle rule blocked a change (SRS §3.1). The order is left as it was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum GuardViolation {
@@ -214,6 +258,18 @@ pub enum GuardViolation {
     RepairCheckMissing,
     #[error("Decision time cannot be represented as RFC 3339")]
     InvalidDecisionTime,
+}
+
+impl GuardViolation {
+    /// The recorded value the rule requires, as the contract names it in `details.guard`.
+    pub const fn guard(self) -> Option<&'static str> {
+        todo!()
+    }
+
+    /// The state a rejected transition asked for.
+    pub const fn requested_status(self) -> Option<OrderStatus> {
+        todo!()
+    }
 }
 
 /// The result of a successful rule: the new order and one change per changed field.
@@ -320,6 +376,12 @@ impl RepairOrder {
         ];
         order.client_decision = Some(decision);
         Ok((order, changes))
+    }
+
+    /// Starts the repair, records incurred charges and the repair check, or finishes the
+    /// repair (REQ-F-009–011, SRS §3.1).
+    pub fn record_repair_work(&self, _work: RepairWork) -> Result<Changed, GuardViolation> {
+        todo!()
     }
 }
 
@@ -568,7 +630,7 @@ pub(crate) mod tests {
         assert_eq!(order.final_settlement, None);
     }
 
-    use OrderStatus::{Cancelled, Completed, Diagnosing, InProgress, Ready};
+    use OrderStatus::{Cancelled, Completed, Diagnosing, InProgress, Ready, Received};
 
     // --- Values ---
 
@@ -653,6 +715,15 @@ pub(crate) mod tests {
 
     fn change(field: &'static str, previous: Option<&str>, new: Option<&str>) -> FieldChange {
         FieldChange::new(field, previous.map(Into::into), new.map(Into::into))
+    }
+
+    fn work(stage: RepairStage) -> RepairWork {
+        RepairWork {
+            stage,
+            used_parts: None,
+            completed_labor: None,
+            repair_checked: None,
+        }
     }
 
     // --- Diagnosis (REQ-F-006) ---
@@ -901,5 +972,104 @@ pub(crate) mod tests {
                 expected: Diagnosing
             })
         );
+    }
+
+    // --- Repair start (REQ-F-009, BDD-003, BDD-004) ---
+
+    #[test]
+    fn bdd_003_approved_order_starts_repair() {
+        let (order, changes) = decided(Decision::Approved)
+            .record_repair_work(work(RepairStage::InProgress))
+            .unwrap();
+        assert_eq!(order, in_progress());
+        assert_eq!(
+            changes,
+            [change("status", Some("Diagnosing"), Some("InProgress"))]
+        );
+    }
+
+    #[test]
+    fn bdd_004_undecided_or_declined_order_cannot_start_repair() {
+        for order in [
+            diagnosing(None),
+            diagnosing(Some("Loose fan")),
+            estimated(),
+            decided(Decision::Declined),
+        ] {
+            assert_eq!(
+                order.record_repair_work(work(RepairStage::InProgress)),
+                Err(GuardViolation::ApprovalMissing)
+            );
+        }
+    }
+
+    /// REQ-F-010: an estimate is never an incurred cost, even once repair starts.
+    #[test]
+    fn starting_repair_does_not_turn_the_estimate_into_charges() {
+        let (order, _) = decided(Decision::Approved)
+            .record_repair_work(work(RepairStage::InProgress))
+            .unwrap();
+        assert_eq!(order.used_parts, Cents::ZERO);
+        assert_eq!(order.completed_labor, Cents::ZERO);
+    }
+
+    #[test]
+    fn repair_starts_only_from_diagnosing() {
+        for stage in RepairStage::ALL {
+            assert_eq!(
+                received().record_repair_work(work(stage)),
+                Err(GuardViolation::Transition {
+                    from: Received,
+                    to: stage.status()
+                })
+            );
+        }
+        assert_eq!(
+            decided(Decision::Approved).record_repair_work(RepairWork {
+                repair_checked: Some(true),
+                ..work(RepairStage::Ready)
+            }),
+            Err(GuardViolation::Transition {
+                from: Diagnosing,
+                to: Ready
+            })
+        );
+    }
+    #[test]
+    fn work_requires_check_and_records_independent_charges() {
+        let original = in_progress();
+        assert_eq!(
+            original.record_repair_work(work(RepairStage::Ready)),
+            Err(GuardViolation::RepairCheckMissing)
+        );
+        let (updated, changes) = original
+            .record_repair_work(RepairWork {
+                used_parts: Some(cents(10000)),
+                completed_labor: Some(cents(5)),
+                repair_checked: Some(true),
+                ..work(RepairStage::Ready)
+            })
+            .unwrap();
+        assert_eq!(updated.status, Ready);
+        assert_eq!(updated.used_parts, cents(10000));
+        assert_eq!(updated.completed_labor, cents(5));
+        assert!(updated.repair_checked);
+        assert_eq!(changes.len(), 4);
+        for status in [Ready, Completed, Cancelled] {
+            let terminal = RepairOrder {
+                status,
+                ..updated.clone()
+            };
+            assert!(
+                terminal
+                    .record_repair_work(work(RepairStage::InProgress))
+                    .is_err()
+            );
+            assert!(
+                terminal
+                    .record_repair_work(work(RepairStage::Ready))
+                    .is_err()
+            );
+        }
     }
 }

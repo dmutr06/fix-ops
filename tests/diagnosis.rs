@@ -6,8 +6,8 @@ mod common;
 use axum::http::{Method, StatusCode};
 use common::TestApp;
 use common::workshop::{
-    DECIDED_AT, FINDINGS, Order, Staff, approved_order, change, changes, decide, diagnose,
-    estimate, get_order, keys, order_audit, put, received_order, snapshot, staff,
+    DECIDED_AT, FINDINGS, ORDER_KEYS, Order, Staff, approved_order, change, changes, decide,
+    diagnose, estimate, get_order, keys, order_audit, put, received_order, repair, snapshot, staff,
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
@@ -25,10 +25,39 @@ fn approved_fields(status: &str) -> Value {
     })
 }
 
+/// Asserts the `409 GUARD_VIOLATION` of BDD-004 (`unapprovedRepairDenied`).
+#[track_caller]
+fn assert_unapproved(body: &Value) {
+    assert_eq!(
+        body["details"]["guard"], "client_decision.Approved",
+        "{body:#}"
+    );
+    assert_eq!(body["details"]["current_status"], "Diagnosing", "{body:#}");
+}
+
+/// Orders in `Diagnosing` without a recorded approval: no findings, findings only, an
+/// estimate, and a declined estimate.
+async fn unapproved_orders(app: &TestApp, s: &Staff) -> Vec<Order> {
+    let no_findings = received_order(app, s, "Standard").await;
+    put(app, &s.tech, &no_findings, "diagnosis", &json!({}))
+        .await
+        .expect(StatusCode::OK);
+    let findings = received_order(app, s, "Standard").await;
+    diagnose(app, s, &findings).await;
+    let estimated = received_order(app, s, "Standard").await;
+    diagnose(app, s, &estimated).await;
+    estimate(app, s, &estimated, 10_000, 10_000).await;
+    let declined = received_order(app, s, "Standard").await;
+    diagnose(app, s, &declined).await;
+    estimate(app, s, &declined, 10_000, 10_000).await;
+    decide(app, s, &declined, "Declined").await;
+    vec![no_findings, findings, estimated, declined]
+}
+
 // --- BDD-003: approval gates repair (REQ-F-007–009) ---
 
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
-async fn bdd_003_approval_is_recorded(pool: PgPool) {
+async fn bdd_003_approved_order_enters_in_progress(pool: PgPool) {
     let app = TestApp::new(pool);
     let s = staff(&app).await;
     let order = received_order(&app, &s, "Standard").await;
@@ -52,13 +81,17 @@ async fn bdd_003_approval_is_recorded(pool: PgPool) {
     let approved = decide(&app, &s, &order, "Approved").await;
     assert_eq!(approved, order.expected(&approved_fields("Diagnosing")));
 
-    assert_eq!(get_order(&app, &s.recep, &order).await, approved);
+    let started = repair(&app, &s, &order, &json!({ "status": "InProgress" })).await;
+    assert_eq!(keys(&started), ORDER_KEYS);
+    // The approval remains visible, and the estimate is not an incurred cost.
+    assert_eq!(started, order.expected(&approved_fields("InProgress")));
+    assert_eq!(get_order(&app, &s.recep, &order).await, started);
 }
 
 /// BDD-020: an Administrator performs every Technician and Receptionist step, and the audit
 /// trail names the Administrator.
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
-async fn bdd_020_administrator_runs_diagnosis_estimate_and_decision(pool: PgPool) {
+async fn bdd_020_administrator_runs_diagnosis_estimate_decision_and_repair_start(pool: PgPool) {
     let app = TestApp::new(pool);
     let s = staff(&app).await;
     let order = received_order(&app, &s, "Standard").await;
@@ -71,6 +104,7 @@ async fn bdd_020_administrator_runs_diagnosis_estimate_and_decision(pool: PgPool
             json!({ "parts_cents": 10000, "labor_cents": 10000 }),
         ),
         ("decision", approval()),
+        ("repair", json!({ "status": "InProgress" })),
     ] {
         put(&app, &s.admin, &order, endpoint, &body)
             .await
@@ -78,12 +112,55 @@ async fn bdd_020_administrator_runs_diagnosis_estimate_and_decision(pool: PgPool
     }
     assert_eq!(
         get_order(&app, &s.admin, &order).await,
-        order.expected(&approved_fields("Diagnosing"))
+        order.expected(&approved_fields("InProgress"))
     );
     let entries = order_audit(&app, &s.admin, &order).await;
     let new = &entries[intake_entries..];
-    assert_eq!(new.len(), 6, "{new:#?}");
+    assert_eq!(new.len(), 7, "{new:#?}");
     assert!(new.iter().all(|e| e["actor_id"] == s.admin_id), "{new:#?}");
+}
+
+// --- BDD-004: no approval, no repair (REQ-F-008, REQ-F-009, REQ-F-014) ---
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn bdd_004_technician_cannot_start_repair_without_approval(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let s = staff(&app).await;
+    for order in unapproved_orders(&app, &s).await {
+        let before = snapshot(&app, &s.admin, &order).await;
+        let body = put(
+            &app,
+            &s.tech,
+            &order,
+            "repair",
+            &json!({ "status": "InProgress" }),
+        )
+        .await
+        .expect_error(StatusCode::CONFLICT, "GUARD_VIOLATION");
+        assert_unapproved(&body);
+        assert_eq!(snapshot(&app, &s.admin, &order).await, before);
+        assert_eq!(before.0["status"], "Diagnosing");
+    }
+}
+
+/// ADD-001: the Administrator repeats the negative approval scenario and is rejected too.
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn bdd_004_administrator_cannot_start_repair_without_approval(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let s = staff(&app).await;
+    for order in unapproved_orders(&app, &s).await {
+        let before = snapshot(&app, &s.admin, &order).await;
+        for body in [
+            json!({ "status": "InProgress" }),
+            json!({ "status": "InProgress", "used_parts_cents": 100, "repair_checked": true }),
+        ] {
+            let error = put(&app, &s.admin, &order, "repair", &body)
+                .await
+                .expect_error(StatusCode::CONFLICT, "GUARD_VIOLATION");
+            assert_unapproved(&error);
+        }
+        assert_eq!(snapshot(&app, &s.admin, &order).await, before);
+    }
 }
 
 // --- BDD-006 (decision part), REQ-F-008 ---
@@ -215,11 +292,14 @@ async fn invalid_findings_are_rejected(pool: PgPool) {
 /// Findings are the basis of the decided estimate, so they are fixed once a decision is
 /// recorded; later states cannot go back to `Diagnosing` (SRS §3.1).
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
-async fn diagnosis_is_rejected_after_a_decision(pool: PgPool) {
+async fn diagnosis_is_rejected_after_a_decision_and_after_repair_starts(pool: PgPool) {
     let app = TestApp::new(pool);
     let s = staff(&app).await;
     let decided = approved_order(&app, &s, "Standard", 10_000, 10_000).await;
-    for order in [&decided] {
+    let started = approved_order(&app, &s, "Standard", 10_000, 10_000).await;
+    repair(&app, &s, &started, &json!({ "status": "InProgress" })).await;
+
+    for order in [&decided, &started] {
         let before = snapshot(&app, &s.admin, order).await;
         for token in [&s.tech, &s.admin] {
             for body in [json!({ "diagnostic_findings": "Other" }), json!({})] {
@@ -478,6 +558,7 @@ async fn each_step_is_audited_with_old_and_new_values(pool: PgPool) {
     let intake_entries = order_audit(&app, &s.admin, &order).await.len();
 
     approved_order_steps(&app, &s, &order).await;
+    repair(&app, &s, &order, &json!({ "status": "InProgress" })).await;
 
     let entries = order_audit(&app, &s.recep, &order).await;
     assert_eq!(
@@ -513,6 +594,12 @@ async fn each_step_is_audited_with_old_and_new_values(pool: PgPool) {
                 Value::Null,
                 json!(DECIDED_AT),
                 s.recep_id
+            ),
+            change(
+                "status",
+                json!("Diagnosing"),
+                json!("InProgress"),
+                s.tech_id
             ),
         ]
     );
@@ -565,7 +652,7 @@ async fn technician_cannot_record_a_client_decision(pool: PgPool) {
 
 /// The role is checked before the path and body (401 → 403 → 400 → 404/409).
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
-async fn receptionist_cannot_diagnose_or_estimate(pool: PgPool) {
+async fn receptionist_cannot_diagnose_estimate_or_repair(pool: PgPool) {
     let app = TestApp::new(pool);
     let s = staff(&app).await;
     let received = received_order(&app, &s, "Standard").await;
@@ -592,6 +679,12 @@ async fn receptionist_cannot_diagnose_or_estimate(pool: PgPool) {
         ),
         (approved.path("estimate"), json!({ "parts_cents": -1 })),
         ("/api/v1/orders/abc/estimate".to_owned(), json!({})),
+        (approved.path("repair"), json!({ "status": "InProgress" })),
+        (approved.path("repair"), json!({ "status": "Completed" })),
+        (
+            "/api/v1/orders/999999/repair".to_owned(),
+            json!({ "status": "InProgress" }),
+        ),
     ];
     for (path, body) in requests {
         app.put(&path)
@@ -612,7 +705,7 @@ async fn receptionist_cannot_diagnose_or_estimate(pool: PgPool) {
 
 /// REQ-F-001: every new operation needs a staff session.
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
-async fn sign_in_is_required_for_diagnosis_estimate_and_decision(pool: PgPool) {
+async fn sign_in_is_required_for_diagnosis_estimate_decision_and_repair(pool: PgPool) {
     let app = TestApp::new(pool);
     let s = staff(&app).await;
     let order = received_order(&app, &s, "Standard").await;
@@ -622,6 +715,7 @@ async fn sign_in_is_required_for_diagnosis_estimate_and_decision(pool: PgPool) {
         ("diagnosis", json!({ "diagnostic_findings": FINDINGS })),
         ("estimate", json!({ "parts_cents": 1, "labor_cents": 1 })),
         ("decision", approval()),
+        ("repair", json!({ "status": "InProgress" })),
     ] {
         let no_token = app
             .request(Method::PUT, &order.path(endpoint))
@@ -661,6 +755,7 @@ async fn unknown_orders_are_not_found(pool: PgPool) {
             &s.tech,
         ),
         ("decision", approval(), &s.recep),
+        ("repair", json!({ "status": "InProgress" }), &s.tech),
     ];
     for (endpoint, body, token) in &requests {
         for token in [*token, &s.admin] {
