@@ -6,16 +6,17 @@ db_user=${FIXOPS_DB_USER:-fixops}
 source_db="recovery_src_$$"
 restore_db="recovery_dst_$$"
 failed_restore_db="recovery_bad_$$"
-archive=$(mktemp "${TMPDIR:-/tmp}/fixops-recovery.XXXXXX")
+temporary_dir=$(mktemp -d "${TMPDIR:-/tmp}/fixops-recovery.XXXXXX")
+archive="$temporary_dir/recovery.dump"
 invalid_archive="$archive.invalid"
 preserved_backup="$archive.preserved"
+failed_backup="$archive.failed"
 
 cleanup() {
     docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$source_db" >/dev/null
     docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$restore_db" >/dev/null
     docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db dropdb --if-exists -U "$db_user" "$failed_restore_db" >/dev/null
-    rm -f "$archive"
-    rm -f "$invalid_archive" "$preserved_backup"
+    rm -rf "$temporary_dir"
 }
 trap cleanup EXIT
 
@@ -44,8 +45,13 @@ actual=$(docker compose -p "$COMPOSE_PROJECT_NAME" exec -T db psql -U "$db_user"
 [[ "$actual" == 'Recovery fixture|17|name|Recovery fixture' ]]
 
 printf 'keep existing backup' > "$preserved_backup"
-if FIXOPS_DB_NAME="missing_database_$$" scripts/backup.sh "$preserved_backup"; then
+if FIXOPS_DB_NAME="missing_database_$$" scripts/backup.sh "$failed_backup"; then
     printf 'backup unexpectedly succeeded for a missing database\n' >&2
+    exit 1
+fi
+[[ ! -e "$failed_backup" ]]
+if scripts/backup.sh "$preserved_backup"; then
+    printf 'backup unexpectedly replaced an existing archive\n' >&2
     exit 1
 fi
 [[ "$(cat "$preserved_backup")" == 'keep existing backup' ]]
