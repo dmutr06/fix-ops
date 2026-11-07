@@ -95,9 +95,11 @@ Orders carry a `version` column. Each update is `UPDATE … WHERE id = $1 AND ve
 
 ## Sessions
 
-- `POST /api/v1/sessions` checks the password with argon2 and issues 32 random bytes, base64url-encoded. Only the SHA-256 hash is stored, with an expiry.
-- Disabling an account deletes its sessions in the same transaction, so access ends at once (REQ-F-019).
-- The first Administrator is created at startup from `FIXOPS_BOOTSTRAP_ADMIN_USERNAME` and `FIXOPS_BOOTSTRAP_ADMIN_PASSWORD`, only when no staff account exists.
+- `POST /api/v1/sessions` checks the password with argon2 and issues 32 random bytes, base64url-encoded. Only the SHA-256 hash is stored, with a 12-hour expiry.
+- An unknown username and a wrong password get the same `401`. A disabled account gets `403` only after its password matched, so neither answer reveals which accounts exist.
+- Password hashing is a port (`PasswordHasher`) like the stores, and `PgStore` implements it with argon2 on the blocking thread pool. The HTTP layer still holds one `App<PgStore>`.
+- Disabling an account deletes its sessions in the same transaction, so access ends at once (REQ-F-019). A role change applies from the next request, because every request reads the account's current role.
+- The first Administrator is created at startup from `FIXOPS_BOOTSTRAP_ADMIN_USERNAME` and `FIXOPS_BOOTSTRAP_ADMIN_PASSWORD`, only when no staff account exists. Its creation is audited with itself as the actor.
 
 ## Errors
 
@@ -116,11 +118,11 @@ Malformed JSON and unknown fields go through the `Json` extractor in `src/http/j
 ## Source layout
 
 ```text
-crates/domain/src/   id.rs, staff.rs, audit.rs, money.rs, client.rs, device.rs, order.rs, pricing.rs
+crates/domain/src/   error.rs, id.rs, staff.rs, audit.rs, money.rs, client.rs, device.rs, order.rs, pricing.rs
 crates/app/src/      error.rs, staff.rs, clients.rs, devices.rs, orders.rs, audit.rs
 crates/infra/src/    lib.rs (PgStore), error.rs, staff.rs, clients.rs, …
 crates/infra/migrations/   <timestamp>_<name>.sql
-src/http/            mod.rs (router), error.rs, json.rs, auth.rs, staff.rs, clients.rs, …
+src/http/            mod.rs (router), error.rs, json.rs, params.rs, auth.rs, sessions.rs, staff.rs, audit.rs, clients.rs, …
 tests/               one HTTP test file per area (staff_access.rs, intake.rs, …), common/ harness
 ```
 
