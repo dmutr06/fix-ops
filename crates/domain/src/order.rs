@@ -255,6 +255,70 @@ pub struct RepairWork {
     pub repair_checked: Option<bool>,
 }
 
+/// A correction: absence keeps the saved value; a supplied inner `None` clears it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct OrderCorrection {
+    pub ticket_number: Option<TicketNumber>,
+    pub client_id: Option<ClientId>,
+    pub device_id: Option<DeviceId>,
+    pub assigned_technician_id: Option<StaffId>,
+    pub status: Option<OrderStatus>,
+    pub diagnostic_findings: Option<Option<DiagnosticFindings>>,
+    pub estimate: Option<Option<Estimate>>,
+    pub client_decision: Option<Option<ClientDecision>>,
+    pub used_parts: Option<Cents>,
+    pub completed_labor: Option<Cents>,
+    pub repair_checked: Option<bool>,
+    pub payment: Option<Option<Payment>>,
+    pub picked_up_at: Option<Option<OffsetDateTime>>,
+}
+
+impl OrderCorrection {
+    pub fn apply(self, current: &RepairOrder) -> RepairOrder {
+        let mut order = current.clone();
+        if let Some(value) = self.ticket_number {
+            order.ticket_number = value;
+        }
+        if let Some(value) = self.client_id {
+            order.client_id = value;
+        }
+        if let Some(value) = self.device_id {
+            order.device_id = value;
+        }
+        if let Some(value) = self.assigned_technician_id {
+            order.assigned_technician_id = value;
+        }
+        if let Some(value) = self.status {
+            order.status = value;
+        }
+        if let Some(value) = self.diagnostic_findings {
+            order.diagnostic_findings = value;
+        }
+        if let Some(value) = self.estimate {
+            order.estimate = value;
+        }
+        if let Some(value) = self.client_decision {
+            order.client_decision = value;
+        }
+        if let Some(value) = self.used_parts {
+            order.used_parts = value;
+        }
+        if let Some(value) = self.completed_labor {
+            order.completed_labor = value;
+        }
+        if let Some(value) = self.repair_checked {
+            order.repair_checked = value;
+        }
+        if let Some(value) = self.payment {
+            order.payment = value;
+        }
+        if let Some(value) = self.picked_up_at {
+            order.picked_up_at = value;
+        }
+        order
+    }
+}
+
 /// A lifecycle rule blocked a change (SRS §3.1). The order is left as it was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum GuardViolation {
@@ -289,6 +353,10 @@ pub enum GuardViolation {
         "Recorded payment ({paid} cents) does not equal full settlement amount ({total} cents)"
     )]
     PaymentMismatch { paid: Cents, total: Cents },
+    #[error("Correction contains evidence incompatible with the lifecycle stage")]
+    InvalidCorrection,
+    #[error("Cancellation source evidence is unavailable for this correction")]
+    CancellationSourceMissing,
     #[error("Cannot complete order without a recorded device pickup")]
     PickupMissing,
 }
@@ -318,6 +386,191 @@ impl GuardViolation {
 pub type Changed = (RepairOrder, Vec<FieldChange>);
 
 impl RepairOrder {
+    /// Validates a complete correction candidate, retaining terminal status and internal evidence.
+    pub fn correct(&self, mut order: Self, tier: LoyaltyTier) -> Result<Changed, GuardViolation> {
+        if self.status != order.status {
+            self.status.check_move(order.status)?;
+        }
+        order.id = self.id;
+        order.version = self.version;
+        order.cancelled_from = self.cancelled_from;
+        order.final_settlement = self.final_settlement;
+        if self.status == OrderStatus::Cancelled && self.cancelled_from.is_none() {
+            // Without the source, even new findings could change the cancellation charge.
+            let mut evidence = order.clone();
+            evidence.ticket_number = self.ticket_number.clone();
+            evidence.device_id = self.device_id;
+            evidence.assigned_technician_id = self.assigned_technician_id;
+            if evidence != *self {
+                return Err(GuardViolation::CancellationSourceMissing);
+            }
+            let changes = self.correction_changes(&order)?;
+            return Ok((order, changes));
+        }
+        let stage = if order.status == OrderStatus::Cancelled {
+            if self.status != OrderStatus::Cancelled {
+                order.cancelled_from = Some(self.status);
+            }
+            order
+                .cancelled_from
+                .ok_or(GuardViolation::CancellationSourceMissing)?
+        } else {
+            order.status
+        };
+        order.validate_correction_stage(stage)?;
+        order.normalize_correction_times()?;
+        // Reuse settlement guards and pricing with a nonterminal copy; stored snapshots must
+        // not conceal a corrected charge or a new tier when validating full payment.
+        let mut pricing = order.clone();
+        pricing.final_settlement = None;
+        if order.status == OrderStatus::Cancelled {
+            pricing.status = stage;
+            order.final_settlement = pricing.cancel(tier)?.0.final_settlement;
+        } else if order.status == OrderStatus::Completed {
+            pricing.status = OrderStatus::Ready;
+            order.final_settlement = pricing.complete(tier)?.0.final_settlement;
+        }
+        let changes = self.correction_changes(&order)?;
+        Ok((order, changes))
+    }
+
+    fn validate_correction_stage(&self, stage: OrderStatus) -> Result<(), GuardViolation> {
+        if self.estimate.is_some() && self.diagnostic_findings.is_none() {
+            return Err(GuardViolation::FindingsMissing);
+        }
+        if self.client_decision.is_some() && self.estimate.is_none() {
+            return Err(GuardViolation::EstimateMissing);
+        }
+        if stage == OrderStatus::Received
+            && (self.diagnostic_findings.is_some()
+                || self.estimate.is_some()
+                || self.client_decision.is_some())
+        {
+            return Err(GuardViolation::InvalidCorrection);
+        }
+        if matches!(stage, OrderStatus::Received | OrderStatus::Diagnosing) {
+            if self.used_parts != Cents::ZERO
+                || self.completed_labor != Cents::ZERO
+                || self.repair_checked
+            {
+                return Err(GuardViolation::InvalidCorrection);
+            }
+        } else if !matches!(
+            self.client_decision,
+            Some(ClientDecision {
+                decision: Decision::Approved,
+                ..
+            })
+        ) || self.estimate.is_none()
+            || self.diagnostic_findings.is_none()
+        {
+            return Err(GuardViolation::ApprovalMissing);
+        }
+        if matches!(stage, OrderStatus::Ready | OrderStatus::Completed) && !self.repair_checked {
+            return Err(GuardViolation::RepairCheckMissing);
+        }
+        if !matches!(stage, OrderStatus::Ready | OrderStatus::Completed)
+            && (self.payment.is_some() || self.picked_up_at.is_some())
+        {
+            return Err(GuardViolation::InvalidCorrection);
+        }
+        self.used_parts
+            .get()
+            .checked_add(self.completed_labor.get())
+            .ok_or(GuardViolation::ChargesOverflow)?;
+        Ok(())
+    }
+
+    fn normalize_correction_times(&mut self) -> Result<(), GuardViolation> {
+        if let Some(decision) = &mut self.client_decision {
+            decision.decided_at = settlement_time(decision.decided_at)?.0;
+        }
+        if let Some(payment) = &mut self.payment {
+            payment.paid_at = settlement_time(payment.paid_at)?.0;
+        }
+        if let Some(pickup) = &mut self.picked_up_at {
+            *pickup = settlement_time(*pickup)?.0;
+        }
+        Ok(())
+    }
+
+    fn correction_changes(&self, order: &Self) -> Result<Vec<FieldChange>, GuardViolation> {
+        let before = self.correction_values()?;
+        let after = order.correction_values()?;
+        Ok(before
+            .into_iter()
+            .zip(after)
+            .filter_map(|((field, previous), (_, new))| {
+                (previous != new).then(|| FieldChange::new(field, previous, new))
+            })
+            .collect())
+    }
+
+    fn correction_values(&self) -> Result<Vec<(&'static str, Option<String>)>, GuardViolation> {
+        Ok(vec![
+            ("ticket_number", Some(self.ticket_number.to_string())),
+            ("client_id", Some(self.client_id.to_string())),
+            ("device_id", Some(self.device_id.to_string())),
+            (
+                "assigned_technician_id",
+                Some(self.assigned_technician_id.to_string()),
+            ),
+            ("status", Some(self.status.to_string())),
+            (
+                "diagnostic_findings",
+                self.diagnostic_findings.as_ref().map(ToString::to_string),
+            ),
+            (
+                "estimate.parts_cents",
+                self.estimate.map(|e| e.parts.to_string()),
+            ),
+            (
+                "estimate.labor_cents",
+                self.estimate.map(|e| e.labor.to_string()),
+            ),
+            (
+                "client_decision.decision",
+                self.client_decision.map(|d| d.decision.to_string()),
+            ),
+            (
+                "client_decision.decided_at",
+                self.client_decision
+                    .map(|d| settlement_time(d.decided_at).map(|(_, s)| s))
+                    .transpose()?,
+            ),
+            ("used_parts_cents", Some(self.used_parts.to_string())),
+            (
+                "completed_labor_cents",
+                Some(self.completed_labor.to_string()),
+            ),
+            ("repair_checked", Some(self.repair_checked.to_string())),
+            (
+                "payment.amount_cents",
+                self.payment.map(|p| p.amount.to_string()),
+            ),
+            (
+                "payment.paid_at",
+                self.payment
+                    .map(|p| settlement_time(p.paid_at).map(|(_, s)| s))
+                    .transpose()?,
+            ),
+            (
+                "pickup.picked_up_at",
+                self.picked_up_at
+                    .map(|t| settlement_time(t).map(|(_, s)| s))
+                    .transpose()?,
+            ),
+            (
+                "labor_discount_cents",
+                self.final_settlement.map(|s| s.labor_discount.to_string()),
+            ),
+            (
+                "settlement_cents",
+                self.final_settlement.map(|s| s.total.to_string()),
+            ),
+        ])
+    }
+
     /// Records or replaces the payment on a Ready order (REQ-F-012).
     pub fn record_payment(&self, payment: Payment) -> Result<Changed, GuardViolation> {
         self.require_ready()?;
