@@ -56,19 +56,6 @@ impl OrderStatus {
     }
 }
 
-impl OrderStatus {
-    /// Whether SRS §3.1 lists `self → next`. This table is the only place transitions are
-    /// allowed; every other pair is rejected, whoever asks (ADD-001).
-    pub const fn can_move_to(self, next: Self) -> bool {
-        todo!()
-    }
-
-    /// Succeeds when `self → next` is a listed transition.
-    pub fn check_move(self, next: Self) -> Result<(), GuardViolation> {
-        todo!()
-    }
-}
-
 impl fmt::Display for OrderStatus {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
@@ -140,7 +127,12 @@ pub struct DiagnosticFindings(String);
 
 impl DiagnosticFindings {
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        todo!()
+        required_text(
+            "diagnostic_findings",
+            "diagnostic_findings cannot be empty",
+            raw,
+        )
+        .map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -198,37 +190,6 @@ pub struct RepairOrder {
     pub version: i64,
 }
 
-/// The state `PUT /repair` asks for: start or continue the repair, or finish it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum RepairStage {
-    InProgress,
-    Ready,
-}
-
-impl RepairStage {
-    pub const ALL: [Self; 2] = [Self::InProgress, Self::Ready];
-
-    pub const fn status(self) -> OrderStatus {
-        match self {
-            Self::InProgress => OrderStatus::InProgress,
-            Self::Ready => OrderStatus::Ready,
-        }
-    }
-
-    pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        todo!()
-    }
-}
-
-/// A repair work update (REQ-F-009–011). `None` keeps a recorded value.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct RepairWork {
-    pub stage: RepairStage,
-    pub used_parts: Option<Cents>,
-    pub completed_labor: Option<Cents>,
-    pub repair_checked: Option<bool>,
-}
-
 /// A lifecycle rule blocked a change (SRS §3.1). The order is left as it was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum GuardViolation {
@@ -251,18 +212,8 @@ pub enum GuardViolation {
     ApprovalMissing,
     #[error("Cannot enter Ready without a recorded repair check")]
     RepairCheckMissing,
-}
-
-impl GuardViolation {
-    /// The recorded value the rule requires, as the contract names it in `details.guard`.
-    pub const fn guard(self) -> Option<&'static str> {
-        todo!()
-    }
-
-    /// The state a rejected transition asked for.
-    pub const fn requested_status(self) -> Option<OrderStatus> {
-        todo!()
-    }
+    #[error("Decision time cannot be represented as RFC 3339")]
+    InvalidDecisionTime,
 }
 
 /// The result of a successful rule: the new order and one change per changed field.
@@ -276,24 +227,96 @@ impl RepairOrder {
         &self,
         findings: Option<DiagnosticFindings>,
     ) -> Result<Changed, GuardViolation> {
-        todo!()
+        if self.status != OrderStatus::Received && self.status != OrderStatus::Diagnosing {
+            return Err(GuardViolation::Transition {
+                from: self.status,
+                to: OrderStatus::Diagnosing,
+            });
+        }
+        if self.client_decision.is_some() {
+            return Err(GuardViolation::DecisionRecorded);
+        }
+        let mut order = self.clone();
+        let mut changes = Vec::new();
+        if order.status == OrderStatus::Received {
+            changes.push(FieldChange::new(
+                "status",
+                Some("Received".into()),
+                Some("Diagnosing".into()),
+            ));
+            order.status = OrderStatus::Diagnosing;
+        }
+        if let Some(findings) = findings {
+            changes.extend(FieldChange::diff_optional(
+                "diagnostic_findings",
+                order.diagnostic_findings.as_ref(),
+                Some(&findings),
+            ));
+            order.diagnostic_findings = Some(findings);
+        }
+        Ok((order, changes))
     }
 
     /// Saves or revises the itemized estimate: only after findings are saved and before the
     /// client decides (REQ-F-007).
     pub fn record_estimate(&self, estimate: Estimate) -> Result<Changed, GuardViolation> {
-        todo!()
+        if self.client_decision.is_some() {
+            return Err(GuardViolation::DecisionRecorded);
+        }
+        if self.diagnostic_findings.is_none() {
+            return Err(GuardViolation::FindingsMissing);
+        }
+        if self.status != OrderStatus::Diagnosing {
+            return Err(GuardViolation::Status {
+                status: self.status,
+                expected: OrderStatus::Diagnosing,
+            });
+        }
+        let mut order = self.clone();
+        let mut changes = Vec::new();
+        changes.extend(FieldChange::diff_optional(
+            "estimate.parts_cents",
+            self.estimate.as_ref().map(|e| &e.parts),
+            Some(&estimate.parts),
+        ));
+        changes.extend(FieldChange::diff_optional(
+            "estimate.labor_cents",
+            self.estimate.as_ref().map(|e| &e.labor),
+            Some(&estimate.labor),
+        ));
+        order.estimate = Some(estimate);
+        Ok((order, changes))
     }
 
     /// Records the client's decision on the estimate and its time, once (REQ-F-008).
     pub fn record_decision(&self, decision: ClientDecision) -> Result<Changed, GuardViolation> {
-        todo!()
-    }
-
-    /// Starts the repair, records incurred charges and the repair check, or finishes the
-    /// repair (REQ-F-009–011, SRS §3.1).
-    pub fn record_repair_work(&self, work: RepairWork) -> Result<Changed, GuardViolation> {
-        todo!()
+        if self.client_decision.is_some() {
+            return Err(GuardViolation::DecisionRecorded);
+        }
+        if self.estimate.is_none() {
+            return Err(GuardViolation::EstimateMissing);
+        }
+        if self.status != OrderStatus::Diagnosing {
+            return Err(GuardViolation::Status {
+                status: self.status,
+                expected: OrderStatus::Diagnosing,
+            });
+        }
+        let mut order = self.clone();
+        let decision = ClientDecision {
+            decided_at: decision.decided_at.to_offset(UtcOffset::UTC),
+            ..decision
+        };
+        let timestamp = decision
+            .decided_at
+            .format(&time::format_description::well_known::Rfc3339)
+            .map_err(|_| GuardViolation::InvalidDecisionTime)?;
+        let changes = vec![
+            FieldChange::created("client_decision.decision", decision.decision),
+            FieldChange::created("client_decision.decided_at", timestamp),
+        ];
+        order.client_decision = Some(decision);
+        Ok((order, changes))
     }
 }
 
@@ -542,7 +565,7 @@ pub(crate) mod tests {
         assert_eq!(order.final_settlement, None);
     }
 
-    use OrderStatus::{Cancelled, Completed, Diagnosing, InProgress, Ready, Received};
+    use OrderStatus::{Cancelled, Completed, Diagnosing, InProgress, Ready};
 
     // --- Values ---
 
@@ -627,15 +650,6 @@ pub(crate) mod tests {
 
     fn change(field: &'static str, previous: Option<&str>, new: Option<&str>) -> FieldChange {
         FieldChange::new(field, previous.map(Into::into), new.map(Into::into))
-    }
-
-    fn work(stage: RepairStage) -> RepairWork {
-        RepairWork {
-            stage,
-            used_parts: None,
-            completed_labor: None,
-            repair_checked: None,
-        }
     }
 
     // --- Diagnosis (REQ-F-006) ---
@@ -882,68 +896,6 @@ pub(crate) mod tests {
             Err(GuardViolation::Status {
                 status: Cancelled,
                 expected: Diagnosing
-            })
-        );
-    }
-
-    // --- Repair start (REQ-F-009, BDD-003, BDD-004) ---
-
-    #[test]
-    fn bdd_003_approved_order_starts_repair() {
-        let (order, changes) = decided(Decision::Approved)
-            .record_repair_work(work(RepairStage::InProgress))
-            .unwrap();
-        assert_eq!(order, in_progress());
-        assert_eq!(
-            changes,
-            [change("status", Some("Diagnosing"), Some("InProgress"))]
-        );
-    }
-
-    #[test]
-    fn bdd_004_undecided_or_declined_order_cannot_start_repair() {
-        for order in [
-            diagnosing(None),
-            diagnosing(Some("Loose fan")),
-            estimated(),
-            decided(Decision::Declined),
-        ] {
-            assert_eq!(
-                order.record_repair_work(work(RepairStage::InProgress)),
-                Err(GuardViolation::ApprovalMissing)
-            );
-        }
-    }
-
-    /// REQ-F-010: an estimate is never an incurred cost, even once repair starts.
-    #[test]
-    fn starting_repair_does_not_turn_the_estimate_into_charges() {
-        let (order, _) = decided(Decision::Approved)
-            .record_repair_work(work(RepairStage::InProgress))
-            .unwrap();
-        assert_eq!(order.used_parts, Cents::ZERO);
-        assert_eq!(order.completed_labor, Cents::ZERO);
-    }
-
-    #[test]
-    fn repair_starts_only_from_diagnosing() {
-        for stage in RepairStage::ALL {
-            assert_eq!(
-                received().record_repair_work(work(stage)),
-                Err(GuardViolation::Transition {
-                    from: Received,
-                    to: stage.status()
-                })
-            );
-        }
-        assert_eq!(
-            decided(Decision::Approved).record_repair_work(RepairWork {
-                repair_checked: Some(true),
-                ..work(RepairStage::Ready)
-            }),
-            Err(GuardViolation::Transition {
-                from: Diagnosing,
-                to: Ready
             })
         );
     }

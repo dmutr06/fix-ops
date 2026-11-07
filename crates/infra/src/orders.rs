@@ -150,6 +150,28 @@ impl OrderStore for PgStore {
         Ok(created)
     }
 
+    async fn update_order(
+        &self,
+        actor: StaffId,
+        order: &RepairOrder,
+        changes: &[FieldChange],
+    ) -> Result<(), StoreError> {
+        let mut tx = self.pool().begin().await.map_err(store_error)?;
+        let result = sqlx::query("UPDATE repair_orders SET status = $3, diagnostic_findings = $4, estimate_parts_cents = $5, estimate_labor_cents = $6, client_decision = $7, client_decided_at = $8, version = version + 1 WHERE id = $1 AND version = $2")
+            .bind(order.id.0).bind(order.version).bind(order.status.as_str())
+            .bind(order.diagnostic_findings.as_ref().map(DiagnosticFindings::as_str))
+            .bind(order.estimate.map(|e| e.parts.get())).bind(order.estimate.map(|e| e.labor.get()))
+            .bind(order.client_decision.map(|d| d.decision.as_str())).bind(order.client_decision.map(|d| d.decided_at))
+            .execute(&mut *tx).await.map_err(store_error)?;
+        if result.rows_affected() == 0 {
+            return Err(StoreError::Stale);
+        }
+        insert_audit(&mut tx, actor, RecordType::RepairOrder, order.id.0, changes)
+            .await
+            .map_err(store_error)?;
+        tx.commit().await.map_err(store_error)
+    }
+
     async fn find_order(&self, id: OrderId) -> Result<Option<RepairOrder>, StoreError> {
         sqlx::query_as::<_, OrderRow>(concat!(
             "SELECT ",
