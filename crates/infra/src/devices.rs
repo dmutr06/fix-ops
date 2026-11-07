@@ -92,12 +92,21 @@ impl DeviceStore for PgStore {
         .collect()
     }
 
+    async fn find_device_with_version(
+        &self,
+        id: DeviceId,
+    ) -> Result<Option<(Device, i64)>, StoreError> {
+        Ok(self.find_device(id).await?.map(|device| (device, 0)))
+    }
+
     async fn update_device(
         &self,
         actor: StaffId,
         device: &Device,
+        version: i64,
         changes: &[FieldChange],
     ) -> Result<(), StoreError> {
+        let _ = version;
         let mut tx = self.pool().begin().await.map_err(store_error)?;
         sqlx::query(
             "UPDATE devices SET device_type = $2, serial_number = $3, reported_symptoms = $4
