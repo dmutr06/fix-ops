@@ -14,7 +14,7 @@ Prevent staff-account changes from locking the workshop out of Administrator-onl
 ## Approaches
 
 1. **Database trigger.** Central enforcement covers every SQL writer, but hides a role policy in trigger code and complicates the existing store transaction and test story.
-2. **Serialized store transaction (selected).** Explicitly set the transaction to PostgreSQL `READ COMMITTED` before its first query, lock the target account, then take a transaction-scoped advisory lock for the last-Administrator check. Count other enabled Administrators and perform the role update, session deletion, and audit insert in the same transaction. The fresh statement snapshot after the advisory-lock wait makes a concurrent demotion visible. This fits the existing `StaffStore` boundary and closes the two-account race without another table or dependency.
+2. **Serialized store transaction (selected).** Explicitly set the transaction to PostgreSQL `READ COMMITTED` before its first query, lock the target account with `FOR NO KEY UPDATE`, then take a transaction-scoped advisory lock for the last-Administrator check. This row-lock mode still prevents competing updates and remains compatible with the audit foreign key's key-share lock on the actor account. Count other enabled Administrators and perform the role update, session deletion, and audit insert in the same transaction. The fresh statement snapshot after the advisory-lock wait makes a concurrent demotion visible. This fits the existing `StaffStore` boundary and closes the two-account race without another table or dependency.
 3. **No invariant.** Keeps the current API unchanged but permits administrative lockout, so it does not meet the security goal.
 
 ## Constraints and non-goals
@@ -38,3 +38,5 @@ Prevent staff-account changes from locking the workshop out of Administrator-onl
 The delegated gate selects approach 2. The implementation will serialize only the destructive transition from an enabled Administrator and will keep the check and write in one transaction.
 
 The transaction isolation choice is explicit, so an environment-level `REPEATABLE READ` default cannot leave the count on a snapshot from before the lock wait. PostgreSQL documents that `READ COMMITTED` starts each command with a fresh snapshot: [Transaction Isolation](https://www.postgresql.org/docs/current/transaction-iso.html).
+
+The row-lock mode is `FOR NO KEY UPDATE` so a concurrent cross-demotion cannot deadlock when the successful change writes an audit row for the other account as its actor.
