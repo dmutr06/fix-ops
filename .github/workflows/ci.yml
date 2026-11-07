@@ -35,3 +35,13 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  recovery:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: bash tests/recovery_cleanup.sh
+      - run: docker compose -p fix-ops up -d --wait
+      - run: bash tests/recovery.sh
+      - if: always()
+        run: docker compose -p fix-ops down --volumes
