@@ -164,6 +164,7 @@ impl StaffStore for PgStore {
         &self,
         actor: StaffId,
         account: &StaffAccount,
+        expected: &StaffAccount,
         changes: &[FieldChange],
         end_sessions: bool,
     ) -> Result<(), StoreError> {
@@ -179,6 +180,12 @@ impl StaffStore for PgStore {
         .fetch_optional(&mut *tx)
         .await
         .map_err(store_error)?;
+
+        if current.as_ref().is_none_or(|(role, enabled)| {
+            role != expected.role.as_str() || *enabled != expected.enabled
+        }) {
+            return Err(StoreError::Stale);
+        }
 
         if current.is_some_and(|(role, enabled)| role == "Administrator" && enabled)
             && (account.role.as_str() != "Administrator" || !account.enabled)

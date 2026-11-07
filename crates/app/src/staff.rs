@@ -121,10 +121,12 @@ pub trait StaffStore: Send + Sync {
 
     /// Saves the role and enabled flag with their audit `changes` in one transaction. With
     /// `end_sessions`, the account's sessions are deleted in that same transaction.
+    /// A state that differs from `expected` fails with [`StoreError::Stale`].
     fn update_staff(
         &self,
         actor: StaffId,
         account: &StaffAccount,
+        expected: &StaffAccount,
         changes: &[FieldChange],
         end_sessions: bool,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
@@ -243,7 +245,7 @@ impl<S: StaffStore + PasswordHasher> App<S> {
         let (updated, changes) = current.update(role, enabled);
         if !changes.is_empty() {
             self.store
-                .update_staff(actor.id, &updated, &changes, !updated.enabled)
+                .update_staff(actor.id, &updated, &current, &changes, !updated.enabled)
                 .await?;
         }
         Ok(updated)
@@ -374,6 +376,7 @@ mod tests {
             async fn update_staff(
                 &self,
                 _: StaffId,
+                _: &StaffAccount,
                 _: &StaffAccount,
                 _: &[FieldChange],
                 _: bool,

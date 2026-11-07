@@ -357,7 +357,7 @@ async fn stale_staff_role_update_cannot_undo_disable(pool: PgPool) {
     let before = s.audit().await;
 
     let err = store
-        .update_staff(s.admin_id, &updated, &changes, false)
+        .update_staff(s.admin_id, &updated, &original, &changes, false)
         .await
         .unwrap_err();
     assert_stale(err).await;
