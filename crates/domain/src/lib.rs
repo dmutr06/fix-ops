@@ -4,6 +4,11 @@
 //! so every rule here is tested with plain unit tests.
 
 pub mod audit;
+pub mod client;
+pub mod device;
 pub mod error;
 pub mod id;
+pub mod money;
+pub mod order;
+pub mod pricing;
 pub mod staff;
