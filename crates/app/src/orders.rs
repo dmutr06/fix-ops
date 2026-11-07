@@ -3,7 +3,10 @@
 use fixops_domain::audit::FieldChange;
 use fixops_domain::client::LoyaltyTier;
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
-use fixops_domain::order::{NewRepairOrder, OrderStatus, RepairOrder, TicketNumber};
+use fixops_domain::order::{
+    ClientDecision, DiagnosticFindings, Estimate, GuardViolation, NewRepairOrder, OrderStatus,
+    RepairOrder, TicketNumber,
+};
 use fixops_domain::pricing::{Settlement, current_settlement};
 use fixops_domain::staff::{Action, Actor};
 
@@ -30,7 +33,7 @@ pub struct OrderView {
 
 impl From<RepairOrder> for OrderView {
     fn from(order: RepairOrder) -> Self {
-        // Only `Received` orders exist so far, and they owe nothing whatever the tier.
+        // Received and Diagnosing orders owe nothing while open, whatever the tier.
         let settlement = current_settlement(&order, LoyaltyTier::Standard);
         Self { order, settlement }
     }
@@ -55,6 +58,13 @@ pub trait OrderStore: Send + Sync {
         order: &NewRepairOrder,
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<RepairOrder, StoreError>> + Send;
+
+    fn update_order(
+        &self,
+        actor: StaffId,
+        order: &RepairOrder,
+        changes: &[FieldChange],
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
     fn find_order(
         &self,
@@ -94,6 +104,69 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(created.into())
     }
 
+    pub async fn record_diagnosis(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        findings: Option<DiagnosticFindings>,
+    ) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::RecordDiagnosis)?;
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let (order, changes) = current.record_diagnosis(findings).map_err(guard)?;
+        self.save_order(actor, &order, &changes).await?;
+        Ok(order.into())
+    }
+
+    pub async fn record_estimate(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        estimate: Estimate,
+    ) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::RecordEstimate)?;
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let (order, changes) = current.record_estimate(estimate).map_err(guard)?;
+        self.save_order(actor, &order, &changes).await?;
+        Ok(order.into())
+    }
+
+    pub async fn record_decision(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        decision: ClientDecision,
+    ) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::RecordClientDecision)?;
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let (order, changes) = current.record_decision(decision).map_err(guard)?;
+        self.save_order(actor, &order, &changes).await?;
+        Ok(order.into())
+    }
+
+    async fn save_order(
+        &self,
+        actor: Actor,
+        order: &RepairOrder,
+        changes: &[FieldChange],
+    ) -> AppResult<()> {
+        if !changes.is_empty() {
+            self.store.update_order(actor.id, order, changes).await?;
+        }
+        Ok(())
+    }
+
     pub async fn get_order(&self, actor: Actor, id: OrderId) -> AppResult<OrderView> {
         crate::authorize(actor, Action::GetRepairOrder)?;
         let order = self.store.find_order(id).await?;
@@ -113,4 +186,8 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
 
 fn missing_link(field: &'static str) -> AppError {
     AppError::not_found().with("field", field)
+}
+
+fn guard(error: GuardViolation) -> AppError {
+    AppError::guard(error.to_string())
 }

@@ -3,11 +3,14 @@
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, put};
 use fixops_app::AppError;
 use fixops_app::orders::{OrderFilter, OrderIntake, OrderView};
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
-use fixops_domain::order::{OrderStatus, TicketNumber};
+use fixops_domain::money::Cents;
+use fixops_domain::order::{
+    ClientDecision, Decision, DiagnosticFindings, Estimate, OrderStatus, TicketNumber,
+};
 use fixops_domain::staff::Action;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -21,6 +24,9 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/orders", get(list).post(create))
         .route("/orders/{orderId}", get(show))
+        .route("/orders/{orderId}/diagnosis", put(diagnosis))
+        .route("/orders/{orderId}/estimate", put(estimate))
+        .route("/orders/{orderId}/decision", put(decision))
 }
 
 /// Contract `RepairOrder`. Every field is always present; unrecorded values are `null`.
@@ -178,4 +184,93 @@ async fn show(
     let PathId(id) = id?;
     let order = state.app.get_order(actor, OrderId(id)).await?;
     Ok(Json(order.into()))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DiagnosisRequest {
+    diagnostic_findings: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EstimateRequest {
+    parts_cents: i64,
+    labor_cents: i64,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DecisionRequest {
+    decision: String,
+    #[serde(with = "time::serde::rfc3339")]
+    decided_at: OffsetDateTime,
+}
+
+async fn diagnosis(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<DiagnosisRequest>, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::RecordDiagnosis)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
+    let findings = body
+        .diagnostic_findings
+        .as_deref()
+        .map(DiagnosticFindings::parse)
+        .transpose()
+        .map_err(AppError::from)?;
+    Ok(Json(
+        state
+            .app
+            .record_diagnosis(actor, OrderId(id), findings)
+            .await?
+            .into(),
+    ))
+}
+
+async fn estimate(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<EstimateRequest>, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::RecordEstimate)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
+    let estimate = Estimate {
+        parts: Cents::new("parts_cents", body.parts_cents).map_err(AppError::from)?,
+        labor: Cents::new("labor_cents", body.labor_cents).map_err(AppError::from)?,
+    };
+    Ok(Json(
+        state
+            .app
+            .record_estimate(actor, OrderId(id), estimate)
+            .await?
+            .into(),
+    ))
+}
+
+async fn decision(
+    State(state): State<AppState>,
+    SignedIn(actor): SignedIn,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<DecisionRequest>, ApiError>,
+) -> Result<Json<RepairOrderDto>, ApiError> {
+    state.app.authorize(actor, Action::RecordClientDecision)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
+    let decision = ClientDecision {
+        decision: Decision::parse(&body.decision).map_err(AppError::from)?,
+        decided_at: body.decided_at,
+    };
+    Ok(Json(
+        state
+            .app
+            .record_decision(actor, OrderId(id), decision)
+            .await?
+            .into(),
+    ))
 }
