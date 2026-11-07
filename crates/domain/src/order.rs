@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use time::OffsetDateTime;
+use time::{OffsetDateTime, UtcOffset};
 
 use crate::audit::FieldChange;
 use crate::client::Client;
@@ -53,6 +53,19 @@ impl OrderStatus {
                 "status",
                 "status must be Received, Diagnosing, InProgress, Ready, Completed or Cancelled",
             ))
+    }
+}
+
+impl OrderStatus {
+    /// Whether SRS §3.1 lists `self → next`. This table is the only place transitions are
+    /// allowed; every other pair is rejected, whoever asks (ADD-001).
+    pub const fn can_move_to(self, next: Self) -> bool {
+        todo!()
+    }
+
+    /// Succeeds when `self → next` is a listed transition.
+    pub fn check_move(self, next: Self) -> Result<(), GuardViolation> {
+        todo!()
     }
 }
 
@@ -115,6 +128,32 @@ impl Decision {
     }
 }
 
+impl fmt::Display for Decision {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The Technician's saved diagnosis result: trimmed and non-empty.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct DiagnosticFindings(String);
+
+impl DiagnosticFindings {
+    pub fn parse(raw: &str) -> Result<Self, InvalidField> {
+        todo!()
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for DiagnosticFindings {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Expected parts and labor charges. Not an incurred cost.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Estimate {
@@ -145,7 +184,7 @@ pub struct RepairOrder {
     pub device_id: DeviceId,
     pub assigned_technician_id: StaffId,
     pub status: OrderStatus,
-    pub diagnostic_findings: Option<String>,
+    pub diagnostic_findings: Option<DiagnosticFindings>,
     pub estimate: Option<Estimate>,
     pub client_decision: Option<ClientDecision>,
     pub used_parts: Cents,
@@ -157,6 +196,105 @@ pub struct RepairOrder {
     pub final_settlement: Option<Settlement>,
     /// Optimistic concurrency token, increased by every saved change.
     pub version: i64,
+}
+
+/// The state `PUT /repair` asks for: start or continue the repair, or finish it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum RepairStage {
+    InProgress,
+    Ready,
+}
+
+impl RepairStage {
+    pub const ALL: [Self; 2] = [Self::InProgress, Self::Ready];
+
+    pub const fn status(self) -> OrderStatus {
+        match self {
+            Self::InProgress => OrderStatus::InProgress,
+            Self::Ready => OrderStatus::Ready,
+        }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, InvalidField> {
+        todo!()
+    }
+}
+
+/// A repair work update (REQ-F-009–011). `None` keeps a recorded value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RepairWork {
+    pub stage: RepairStage,
+    pub used_parts: Option<Cents>,
+    pub completed_labor: Option<Cents>,
+    pub repair_checked: Option<bool>,
+}
+
+/// A lifecycle rule blocked a change (SRS §3.1). The order is left as it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum GuardViolation {
+    /// SRS §3.1 does not list this transition.
+    #[error("Cannot move an order from {from} to {to}")]
+    Transition { from: OrderStatus, to: OrderStatus },
+    /// The action is only available while the order is in `expected`.
+    #[error("Only a {expected} order accepts this action; the order is {status}")]
+    Status {
+        status: OrderStatus,
+        expected: OrderStatus,
+    },
+    #[error("Diagnostic findings must be saved before preparing an estimate")]
+    FindingsMissing,
+    #[error("An estimate must be prepared before a client decision is recorded")]
+    EstimateMissing,
+    #[error("A client decision is already recorded for this estimate")]
+    DecisionRecorded,
+    #[error("Cannot enter InProgress without recorded client approval on estimate")]
+    ApprovalMissing,
+    #[error("Cannot enter Ready without a recorded repair check")]
+    RepairCheckMissing,
+}
+
+impl GuardViolation {
+    /// The recorded value the rule requires, as the contract names it in `details.guard`.
+    pub const fn guard(self) -> Option<&'static str> {
+        todo!()
+    }
+
+    /// The state a rejected transition asked for.
+    pub const fn requested_status(self) -> Option<OrderStatus> {
+        todo!()
+    }
+}
+
+/// The result of a successful rule: the new order and one change per changed field.
+pub type Changed = (RepairOrder, Vec<FieldChange>);
+
+impl RepairOrder {
+    /// Starts diagnosis on a `Received` order and saves `findings` when given (REQ-F-006).
+    /// While `Diagnosing` and before a client decision, findings can be saved or revised.
+    /// `None` keeps what is saved.
+    pub fn record_diagnosis(
+        &self,
+        findings: Option<DiagnosticFindings>,
+    ) -> Result<Changed, GuardViolation> {
+        todo!()
+    }
+
+    /// Saves or revises the itemized estimate: only after findings are saved and before the
+    /// client decides (REQ-F-007).
+    pub fn record_estimate(&self, estimate: Estimate) -> Result<Changed, GuardViolation> {
+        todo!()
+    }
+
+    /// Records the client's decision on the estimate and its time, once (REQ-F-008).
+    pub fn record_decision(&self, decision: ClientDecision) -> Result<Changed, GuardViolation> {
+        todo!()
+    }
+
+    /// Starts the repair, records incurred charges and the repair check, or finishes the
+    /// repair (REQ-F-009–011, SRS §3.1).
+    pub fn record_repair_work(&self, work: RepairWork) -> Result<Changed, GuardViolation> {
+        todo!()
+    }
 }
 
 /// Why an intake was refused although every linked record exists.
@@ -231,6 +369,16 @@ pub(crate) mod tests {
     use crate::client::{ClientName, LoyaltyTier, Phone};
     use crate::device::{DeviceType, SerialNumber, Symptoms};
     use crate::staff::Username;
+    use time::{Date, Month, PrimitiveDateTime, Time};
+
+    /// 2026-10-21 at `hour:minute` UTC.
+    pub(crate) fn october_21(hour: u8, minute: u8) -> OffsetDateTime {
+        PrimitiveDateTime::new(
+            Date::from_calendar_date(2026, Month::October, 21).unwrap(),
+            Time::from_hms(hour, minute, 0).unwrap(),
+        )
+        .assume_utc()
+    }
 
     /// A freshly received order with nothing recorded yet.
     pub(crate) fn received() -> RepairOrder {
@@ -392,5 +540,411 @@ pub(crate) mod tests {
         assert_eq!(order.used_parts, Cents::ZERO);
         assert_eq!(order.completed_labor, Cents::ZERO);
         assert_eq!(order.final_settlement, None);
+    }
+
+    use OrderStatus::{Cancelled, Completed, Diagnosing, InProgress, Ready, Received};
+
+    // --- Values ---
+
+    #[test]
+    fn findings_are_trimmed_and_required() {
+        assert_eq!(
+            DiagnosticFindings::parse("  Faulty power IC ")
+                .unwrap()
+                .as_str(),
+            "Faulty power IC"
+        );
+        for blank in ["", "   ", "\n"] {
+            assert_eq!(
+                DiagnosticFindings::parse(blank).unwrap_err().field,
+                "diagnostic_findings"
+            );
+        }
+    }
+
+    // --- Orders at each step ---
+
+    fn cents(value: i64) -> Cents {
+        Cents::new("x", value).unwrap()
+    }
+
+    fn findings(text: &str) -> DiagnosticFindings {
+        DiagnosticFindings::parse(text).unwrap()
+    }
+
+    fn estimate(parts: i64, labor: i64) -> Estimate {
+        Estimate {
+            parts: cents(parts),
+            labor: cents(labor),
+        }
+    }
+
+    fn decision(decision: Decision) -> ClientDecision {
+        ClientDecision {
+            decision,
+            decided_at: october_21(10, 15),
+        }
+    }
+
+    fn diagnosing(saved: Option<&str>) -> RepairOrder {
+        RepairOrder {
+            status: Diagnosing,
+            diagnostic_findings: saved.map(findings),
+            ..received()
+        }
+    }
+
+    fn estimated() -> RepairOrder {
+        RepairOrder {
+            estimate: Some(estimate(10_000, 10_000)),
+            ..diagnosing(Some("Faulty power IC"))
+        }
+    }
+
+    fn decided(answer: Decision) -> RepairOrder {
+        RepairOrder {
+            client_decision: Some(decision(answer)),
+            ..estimated()
+        }
+    }
+
+    fn in_progress() -> RepairOrder {
+        RepairOrder {
+            status: InProgress,
+            ..decided(Decision::Approved)
+        }
+    }
+
+    fn ready() -> RepairOrder {
+        RepairOrder {
+            status: Ready,
+            used_parts: cents(10_000),
+            completed_labor: cents(10_000),
+            repair_checked: true,
+            ..in_progress()
+        }
+    }
+
+    fn change(field: &'static str, previous: Option<&str>, new: Option<&str>) -> FieldChange {
+        FieldChange::new(field, previous.map(Into::into), new.map(Into::into))
+    }
+
+    fn work(stage: RepairStage) -> RepairWork {
+        RepairWork {
+            stage,
+            used_parts: None,
+            completed_labor: None,
+            repair_checked: None,
+        }
+    }
+
+    // --- Diagnosis (REQ-F-006) ---
+
+    #[test]
+    fn diagnosis_starts_on_a_received_order_with_findings() {
+        let (order, changes) = received()
+            .record_diagnosis(Some(findings("Faulty power IC")))
+            .unwrap();
+        assert_eq!(order, diagnosing(Some("Faulty power IC")));
+        assert_eq!(
+            changes,
+            [
+                change("status", Some("Received"), Some("Diagnosing")),
+                change("diagnostic_findings", None, Some("Faulty power IC")),
+            ]
+        );
+    }
+
+    /// BDD-013: diagnosis may start before any findings are saved.
+    #[test]
+    fn diagnosis_starts_without_findings() {
+        let (order, changes) = received().record_diagnosis(None).unwrap();
+        assert_eq!(order, diagnosing(None));
+        assert_eq!(
+            changes,
+            [change("status", Some("Received"), Some("Diagnosing"))]
+        );
+    }
+
+    #[test]
+    fn findings_are_saved_and_revised_while_diagnosing() {
+        let (order, changes) = diagnosing(None)
+            .record_diagnosis(Some(findings("Loose fan")))
+            .unwrap();
+        assert_eq!(order, diagnosing(Some("Loose fan")));
+        assert_eq!(
+            changes,
+            [change("diagnostic_findings", None, Some("Loose fan"))]
+        );
+
+        let (order, changes) = order
+            .record_diagnosis(Some(findings("Faulty power IC")))
+            .unwrap();
+        assert_eq!(order, diagnosing(Some("Faulty power IC")));
+        assert_eq!(
+            changes,
+            [change(
+                "diagnostic_findings",
+                Some("Loose fan"),
+                Some("Faulty power IC")
+            )]
+        );
+    }
+
+    #[test]
+    fn diagnosis_without_findings_keeps_what_is_saved() {
+        let saved = diagnosing(Some("Loose fan"));
+        assert_eq!(saved.record_diagnosis(None), Ok((saved.clone(), vec![])));
+        assert_eq!(
+            saved.record_diagnosis(Some(findings("Loose fan"))),
+            Ok((saved.clone(), vec![]))
+        );
+    }
+
+    /// The decision was made on these findings and their estimate, so they are fixed after it.
+    #[test]
+    fn diagnosis_is_rejected_after_a_client_decision() {
+        for answer in Decision::ALL {
+            assert_eq!(
+                decided(answer).record_diagnosis(Some(findings("Other"))),
+                Err(GuardViolation::DecisionRecorded),
+                "{answer:?}"
+            );
+            assert_eq!(
+                decided(answer).record_diagnosis(None),
+                Err(GuardViolation::DecisionRecorded)
+            );
+        }
+    }
+
+    #[test]
+    fn diagnosis_cannot_reenter_from_later_states() {
+        for from in [InProgress, Ready, Completed, Cancelled] {
+            let order = RepairOrder {
+                status: from,
+                ..in_progress()
+            };
+            assert_eq!(
+                order.record_diagnosis(Some(findings("Other"))),
+                Err(GuardViolation::Transition {
+                    from,
+                    to: Diagnosing
+                }),
+                "{from}"
+            );
+        }
+    }
+
+    // --- Estimate (REQ-F-007) ---
+
+    #[test]
+    fn estimate_needs_saved_findings() {
+        assert_eq!(
+            received().record_estimate(estimate(1, 1)),
+            Err(GuardViolation::FindingsMissing)
+        );
+        assert_eq!(
+            diagnosing(None).record_estimate(estimate(1, 1)),
+            Err(GuardViolation::FindingsMissing)
+        );
+    }
+
+    #[test]
+    fn estimate_is_itemized_and_audited_per_amount() {
+        let (order, changes) = diagnosing(Some("Faulty power IC"))
+            .record_estimate(estimate(10_000, 10_000))
+            .unwrap();
+        assert_eq!(order, estimated());
+        assert_eq!(
+            changes,
+            [
+                change("estimate.parts_cents", None, Some("10000")),
+                change("estimate.labor_cents", None, Some("10000")),
+            ]
+        );
+    }
+
+    #[test]
+    fn estimate_can_be_revised_before_the_decision() {
+        let (order, changes) = estimated()
+            .record_estimate(estimate(10_000, 8_000))
+            .unwrap();
+        assert_eq!(order.estimate, Some(estimate(10_000, 8_000)));
+        assert_eq!(
+            changes,
+            [change("estimate.labor_cents", Some("10000"), Some("8000"))]
+        );
+        assert_eq!(
+            estimated().record_estimate(estimate(10_000, 10_000)),
+            Ok((estimated(), vec![]))
+        );
+    }
+
+    /// REQ-F-007: the estimate is prepared before a client decision is recorded.
+    #[test]
+    fn estimate_is_rejected_after_a_client_decision() {
+        for order in [
+            decided(Decision::Approved),
+            decided(Decision::Declined),
+            in_progress(),
+            ready(),
+        ] {
+            assert_eq!(
+                order.record_estimate(estimate(1, 1)),
+                Err(GuardViolation::DecisionRecorded)
+            );
+        }
+    }
+
+    #[test]
+    fn estimate_is_rejected_on_a_closed_order() {
+        let cancelled = RepairOrder {
+            status: Cancelled,
+            ..diagnosing(Some("Faulty power IC"))
+        };
+        assert_eq!(
+            cancelled.record_estimate(estimate(1, 1)),
+            Err(GuardViolation::Status {
+                status: Cancelled,
+                expected: Diagnosing
+            })
+        );
+    }
+
+    // --- Client decision (REQ-F-008) ---
+
+    #[test]
+    fn decision_is_recorded_with_its_time() {
+        for answer in Decision::ALL {
+            let (order, changes) = estimated().record_decision(decision(answer)).unwrap();
+            assert_eq!(order, decided(answer));
+            assert_eq!(
+                changes,
+                [
+                    change("client_decision.decision", None, Some(answer.as_str())),
+                    change(
+                        "client_decision.decided_at",
+                        None,
+                        Some("2026-10-21T10:15:00Z")
+                    ),
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn decision_time_is_kept_in_utc() {
+        let local = october_21(10, 15).to_offset(UtcOffset::from_hms(2, 0, 0).unwrap());
+        let (order, changes) = estimated()
+            .record_decision(ClientDecision {
+                decision: Decision::Approved,
+                decided_at: local,
+            })
+            .unwrap();
+        let decided_at = order.client_decision.unwrap().decided_at;
+        assert_eq!(decided_at, october_21(10, 15));
+        assert_eq!(decided_at.offset(), UtcOffset::UTC);
+        assert_eq!(changes[1].new.as_deref(), Some("2026-10-21T10:15:00Z"));
+    }
+
+    #[test]
+    fn decision_needs_an_estimate() {
+        for order in [received(), diagnosing(None), diagnosing(Some("Loose fan"))] {
+            assert_eq!(
+                order.record_decision(decision(Decision::Approved)),
+                Err(GuardViolation::EstimateMissing)
+            );
+        }
+    }
+
+    #[test]
+    fn decision_is_recorded_once() {
+        for answer in Decision::ALL {
+            assert_eq!(
+                decided(answer).record_decision(decision(Decision::Approved)),
+                Err(GuardViolation::DecisionRecorded)
+            );
+        }
+        assert_eq!(
+            in_progress().record_decision(decision(Decision::Declined)),
+            Err(GuardViolation::DecisionRecorded)
+        );
+    }
+
+    #[test]
+    fn decision_is_rejected_on_a_closed_order() {
+        let cancelled = RepairOrder {
+            status: Cancelled,
+            ..estimated()
+        };
+        assert_eq!(
+            cancelled.record_decision(decision(Decision::Approved)),
+            Err(GuardViolation::Status {
+                status: Cancelled,
+                expected: Diagnosing
+            })
+        );
+    }
+
+    // --- Repair start (REQ-F-009, BDD-003, BDD-004) ---
+
+    #[test]
+    fn bdd_003_approved_order_starts_repair() {
+        let (order, changes) = decided(Decision::Approved)
+            .record_repair_work(work(RepairStage::InProgress))
+            .unwrap();
+        assert_eq!(order, in_progress());
+        assert_eq!(
+            changes,
+            [change("status", Some("Diagnosing"), Some("InProgress"))]
+        );
+    }
+
+    #[test]
+    fn bdd_004_undecided_or_declined_order_cannot_start_repair() {
+        for order in [
+            diagnosing(None),
+            diagnosing(Some("Loose fan")),
+            estimated(),
+            decided(Decision::Declined),
+        ] {
+            assert_eq!(
+                order.record_repair_work(work(RepairStage::InProgress)),
+                Err(GuardViolation::ApprovalMissing)
+            );
+        }
+    }
+
+    /// REQ-F-010: an estimate is never an incurred cost, even once repair starts.
+    #[test]
+    fn starting_repair_does_not_turn_the_estimate_into_charges() {
+        let (order, _) = decided(Decision::Approved)
+            .record_repair_work(work(RepairStage::InProgress))
+            .unwrap();
+        assert_eq!(order.used_parts, Cents::ZERO);
+        assert_eq!(order.completed_labor, Cents::ZERO);
+    }
+
+    #[test]
+    fn repair_starts_only_from_diagnosing() {
+        for stage in RepairStage::ALL {
+            assert_eq!(
+                received().record_repair_work(work(stage)),
+                Err(GuardViolation::Transition {
+                    from: Received,
+                    to: stage.status()
+                })
+            );
+        }
+        assert_eq!(
+            decided(Decision::Approved).record_repair_work(RepairWork {
+                repair_checked: Some(true),
+                ..work(RepairStage::Ready)
+            }),
+            Err(GuardViolation::Transition {
+                from: Diagnosing,
+                to: Ready
+            })
+        );
     }
 }

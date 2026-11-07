@@ -2,6 +2,7 @@
 //!
 //! `labor_discount_cents` and `settlement_cents` are always derived here, never entered.
 
+use crate::client::LoyaltyTier;
 use crate::money::Cents;
 use crate::order::{OrderStatus, RepairOrder};
 
@@ -20,23 +21,30 @@ impl Settlement {
     };
 }
 
+/// The labor discount rate of a tier in percent: Standard 0, Silver 10, Gold 20.
+pub const fn discount_percent(tier: LoyaltyTier) -> i64 {
+    todo!()
+}
+
+/// The tier discount on `labor`, rounded to whole cents with an exact half cent rounded up.
+pub fn labor_discount(labor: Cents, tier: LoyaltyTier) -> Cents {
+    todo!()
+}
+
+/// The total of a repair: used parts plus completed labor minus the labor-only discount.
+pub fn repair_total(used_parts: Cents, completed_labor: Cents, tier: LoyaltyTier) -> Settlement {
+    todo!()
+}
+
 /// The settlement an order shows now: the stored one once the order is terminal, otherwise
-/// the amount computed from what has been incurred so far.
-///
-/// Intake only creates `Received` orders, which owe nothing: no findings are saved and no
-/// charge has been incurred (SRS §3.2). The other open states, the client's tier and the
-/// labor discount are added together with the transitions that reach them.
-///
-/// # Panics
-///
-/// For an open order past `Received`, which intake cannot produce.
-pub fn current_settlement(order: &RepairOrder) -> Settlement {
+/// the amount computed from what has been incurred so far with the client's current `tier`.
+pub fn current_settlement(order: &RepairOrder, tier: LoyaltyTier) -> Settlement {
     if let Some(settlement) = order.final_settlement {
         return settlement;
     }
     match order.status {
         OrderStatus::Received => Settlement::NONE,
-        status => unimplemented!("settlement of an open {status} order"),
+        status => todo!("settlement of an open {status} order"),
     }
 }
 
@@ -48,6 +56,9 @@ mod tests {
     /// SRS §3.2: before diagnostic findings are saved nothing is owed.
     #[test]
     fn a_received_order_owes_nothing() {
-        assert_eq!(current_settlement(&received()), Settlement::NONE);
+        assert_eq!(
+            current_settlement(&received(), LoyaltyTier::Gold),
+            Settlement::NONE
+        );
     }
 }
