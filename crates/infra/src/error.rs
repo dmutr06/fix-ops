@@ -4,7 +4,6 @@ use fixops_app::StoreError;
 
 /// Converts a database error into a [`StoreError`], keeping the constraint name for unique and
 /// foreign key violations so use cases can explain which value was rejected.
-#[expect(dead_code, reason = "used by the store ports as they are added")]
 pub(crate) fn store_error(err: sqlx::Error) -> StoreError {
     if let sqlx::Error::Database(db) = &err {
         let constraint = db.constraint().unwrap_or_default().to_owned();
@@ -16,4 +15,11 @@ pub(crate) fn store_error(err: sqlx::Error) -> StoreError {
         }
     }
     StoreError::Other(Box::new(err))
+}
+
+/// A stored value that no longer parses into its domain type.
+pub(crate) fn decode_error(
+    err: impl Into<Box<dyn std::error::Error + Send + Sync>>,
+) -> sqlx::Error {
+    sqlx::Error::Decode(err.into())
 }

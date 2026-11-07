@@ -32,4 +32,6 @@ HTTP tests create a throwaway database per test on the Compose Postgres.
 | `DATABASE_URL` | `postgres://fixops:fixops@localhost:5432/fixops` (from `.cargo/config.toml`) | PostgreSQL connection |
 | `FIXOPS_LISTEN_ADDR` | `127.0.0.1:8080` | HTTP listen address |
 | `FIXOPS_DB_MAX_CONNECTIONS` | `10` | Pool size |
+| `FIXOPS_BOOTSTRAP_ADMIN_USERNAME` | unset | Username of the first Administrator, created at startup only while no staff account exists |
+| `FIXOPS_BOOTSTRAP_ADMIN_PASSWORD` | unset | Its password, at least 8 characters. Set both variables or neither |
 | `RUST_LOG` | `info,tower_http=debug` | Log filter |

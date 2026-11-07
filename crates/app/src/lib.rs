@@ -5,6 +5,7 @@
 //! This layer checks permissions, loads records, asks `fixops-domain` to apply the rules, and
 //! hands the result plus its audit entries to the store in one call.
 
+pub mod audit;
 pub mod error;
 pub mod staff;
 

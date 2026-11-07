@@ -3,6 +3,9 @@
 
 use std::borrow::Cow;
 
+use fixops_domain::error::InvalidField;
+use fixops_domain::staff::Denied;
+
 /// What kind of failure happened. Every kind except [`ErrorKind::Internal`] leaves stored
 /// records unchanged and is the caller's fault.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,6 +103,18 @@ pub enum StoreError {
     Other(Box<dyn std::error::Error + Send + Sync>),
 }
 
+impl From<InvalidField> for AppError {
+    fn from(err: InvalidField) -> Self {
+        Self::validation(err.field, err.message)
+    }
+}
+
+impl From<Denied> for AppError {
+    fn from(_: Denied) -> Self {
+        Self::forbidden("Role is not authorized to perform this action")
+    }
+}
+
 impl From<StoreError> for AppError {
     /// Fallback mapping. Use cases that expect a duplicate or missing reference map it themselves
     /// to a precise message.
@@ -129,6 +144,19 @@ mod tests {
         let err = AppError::validation("phone", "phone is required");
         assert_eq!(err.kind, ErrorKind::Validation);
         assert_eq!(err.details, vec![("field", "phone".to_owned())]);
+    }
+
+    #[test]
+    fn domain_errors_map_to_validation_and_forbidden() {
+        let invalid = AppError::from(InvalidField::new("username", "username is required"));
+        assert_eq!(invalid.kind, ErrorKind::Validation);
+        assert_eq!(invalid.details, vec![("field", "username".to_owned())]);
+
+        let denied = AppError::from(Denied {
+            role: fixops_domain::staff::Role::Technician,
+            action: fixops_domain::staff::Action::CancelRepairOrder,
+        });
+        assert_eq!(denied.kind, ErrorKind::Forbidden);
     }
 
     #[test]

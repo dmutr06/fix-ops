@@ -1,7 +1,12 @@
 //! Router and shared state.
 
+mod audit;
+mod auth;
 mod error;
 mod json;
+mod params;
+mod sessions;
+mod staff;
 
 use std::sync::Arc;
 
@@ -11,6 +16,7 @@ use fixops_app::App;
 use fixops_infra::PgStore;
 use tower_http::trace::TraceLayer;
 
+pub use auth::SignedIn;
 pub use error::ApiError;
 pub use json::Json;
 
@@ -30,7 +36,10 @@ impl AppState {
 
 /// Builds the full HTTP router.
 pub fn router(state: AppState) -> Router {
-    let api = Router::new();
+    let api = Router::new()
+        .merge(sessions::routes())
+        .merge(staff::routes())
+        .merge(audit::routes());
 
     Router::new()
         .route("/health", get(health))
