@@ -336,3 +336,39 @@ async fn sequential_updates_persist_and_match_the_audit_log(pool: PgPool) {
         );
     }
 }
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn stale_staff_role_update_cannot_undo_disable(pool: PgPool) {
+    use fixops_app::staff::StaffStore;
+    use fixops_domain::staff::Role;
+    use fixops_infra::PgStore;
+
+    let s = setup(pool).await;
+    let id = s
+        .app
+        .create_staff(&s.admin, "stale.tech", "Technician")
+        .await;
+    let token = s.app.sign_in("stale.tech", common::PASSWORD).await;
+    let store = PgStore::new(s.app.pool.clone());
+    let original = store.find_staff(StaffId(id)).await.unwrap().unwrap();
+    let (updated, changes) = original.update(Some(Role::Receptionist), None);
+    s.patch(&format!("/staff/{id}"), &json!({ "enabled": false }))
+        .await;
+    let before = s.audit().await;
+
+    let err = store
+        .update_staff(s.admin_id, &updated, &changes, false)
+        .await
+        .unwrap_err();
+    assert_stale(err).await;
+    let saved = store.find_staff(StaffId(id)).await.unwrap().unwrap();
+    assert_eq!(saved.role, Role::Technician);
+    assert!(!saved.enabled);
+    assert_eq!(s.audit().await, before);
+    s.app
+        .get("/api/v1/audit-logs")
+        .token(&token)
+        .send()
+        .await
+        .expect_error(StatusCode::UNAUTHORIZED, "UNAUTHENTICATED");
+}
