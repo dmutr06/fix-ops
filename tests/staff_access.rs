@@ -767,3 +767,150 @@ async fn bootstrap_runs_only_while_no_staff_exist(pool: PgPool) {
     assert_eq!(entries.len(), 4);
     assert!(entries.iter().all(|e| e["actor_id"] == list[0]["id"]));
 }
+
+// --- Check order: 401 → 403 → 400 → 404/409 (ADD-002 §2, §5) ---
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn denied_roles_get_403_whatever_the_body(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let target = app.create_staff(&admin, "target.tech", "Technician").await;
+    let (_, recep) = app.staff_token(&admin, "anna.recep", "Receptionist").await;
+    let (_, tech) = app.staff_token(&admin, "max.tech", "Technician").await;
+    let staff_before = staff_list(&app, &admin).await;
+    let audit_before = audit_log(&app, &admin, "").await;
+    let target_path = format!("/api/v1/staff/{target}");
+
+    for token in [&recep, &tech] {
+        for body in [
+            json!({ "username": "sneaky", "password": "1234567", "role": "Technician" }),
+            json!({ "username": "sneaky", "password": PASSWORD, "role": "Manager" }),
+            json!({ "username": "", "password": PASSWORD, "role": "Technician" }),
+            json!({ "username": "sneaky", "password": PASSWORD, "role": "Technician", "x": 1 }),
+            json!({ "username": "sneaky" }),
+        ] {
+            app.post("/api/v1/staff")
+                .token(token)
+                .json(&body)
+                .send()
+                .await
+                .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+        }
+        app.post("/api/v1/staff")
+            .token(token)
+            .raw_json("{not json")
+            .send()
+            .await
+            .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+
+        for body in [
+            json!({}),
+            json!({ "role": "Manager" }),
+            json!({ "enabled": "no" }),
+            json!({ "role": null, "enabled": false }),
+            json!({ "username": "renamed" }),
+        ] {
+            app.patch(&target_path)
+                .token(token)
+                .json(&body)
+                .send()
+                .await
+                .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+        }
+        app.patch(&target_path)
+            .token(token)
+            .raw_json("{not json")
+            .send()
+            .await
+            .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+        for id in ["0", "abc", "999999"] {
+            app.patch(&format!("/api/v1/staff/{id}"))
+                .token(token)
+                .json(&json!({ "enabled": false }))
+                .send()
+                .await
+                .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
+        }
+    }
+
+    assert_eq!(staff_list(&app, &admin).await, staff_before);
+    assert_eq!(audit_log(&app, &admin, "").await, audit_before);
+}
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn missing_session_gets_401_whatever_the_body(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let target = app.create_staff(&admin, "target.tech", "Technician").await;
+    let staff_before = staff_list(&app, &admin).await;
+
+    for request in [
+        app.post("/api/v1/staff").raw_json("{not json"),
+        app.post("/api/v1/staff")
+            .json(&json!({ "username": "x", "password": "1", "role": "Manager" })),
+        app.patch(&format!("/api/v1/staff/{target}"))
+            .raw_json("{not json"),
+        app.patch("/api/v1/staff/0")
+            .json(&json!({ "enabled": false })),
+    ] {
+        request
+            .send()
+            .await
+            .expect_error(StatusCode::UNAUTHORIZED, "UNAUTHENTICATED");
+    }
+    assert_eq!(staff_list(&app, &admin).await, staff_before);
+}
+
+// --- Non-nullable fields (contract StaffUpdateRequest) ---
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn null_fields_in_staff_update_are_rejected(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let tech_id = app.create_staff(&admin, "max.tech", "Technician").await;
+    let path = format!("/api/v1/staff/{tech_id}");
+    let staff_before = staff_list(&app, &admin).await;
+    let audit_before = audit_log(&app, &admin, "").await;
+
+    for body in [
+        json!({ "role": null, "enabled": false }),
+        json!({ "role": "Receptionist", "enabled": null }),
+        json!({ "role": null }),
+    ] {
+        app.patch(&path)
+            .token(&admin)
+            .json(&body)
+            .send()
+            .await
+            .expect_error(StatusCode::BAD_REQUEST, "VALIDATION_ERROR");
+    }
+
+    assert_eq!(staff_list(&app, &admin).await, staff_before);
+    assert_eq!(audit_log(&app, &admin, "").await, audit_before);
+}
+
+// --- Audit log is append-only (REQ-NF-003) ---
+
+#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
+async fn audit_log_cannot_be_changed_deleted_or_truncated(pool: PgPool) {
+    let app = TestApp::new(pool);
+    let admin = app.admin_token().await;
+    let before = audit_log(&app, &admin, "").await;
+    assert_ne!(before, Vec::<Value>::new());
+
+    for statement in [
+        "UPDATE audit_log SET new_value = 'x'",
+        "DELETE FROM audit_log",
+        "TRUNCATE audit_log",
+    ] {
+        let err = sqlx::query(statement)
+            .execute(&app.pool)
+            .await
+            .expect_err(statement);
+        assert!(
+            err.to_string().contains("append-only"),
+            "{statement}: {err}"
+        );
+    }
+    assert_eq!(audit_log(&app, &admin, "").await, before);
+}
