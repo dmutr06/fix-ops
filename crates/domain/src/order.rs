@@ -59,13 +59,26 @@ impl OrderStatus {
 impl OrderStatus {
     /// Whether SRS §3.1 lists `self → next`. This table is the only place transitions are
     /// allowed; every other pair is rejected, whoever asks (ADD-001).
-    pub const fn can_move_to(self, _next: Self) -> bool {
-        todo!()
+    pub const fn can_move_to(self, next: Self) -> bool {
+        matches!(
+            (self, next),
+            (Self::Received, Self::Diagnosing | Self::Cancelled)
+                | (Self::Diagnosing, Self::InProgress | Self::Cancelled)
+                | (Self::InProgress, Self::Ready | Self::Cancelled)
+                | (Self::Ready, Self::Completed)
+        )
     }
 
     /// Succeeds when `self → next` is a listed transition.
-    pub fn check_move(self, _next: Self) -> Result<(), GuardViolation> {
-        todo!()
+    pub fn check_move(self, next: Self) -> Result<(), GuardViolation> {
+        if self.can_move_to(next) {
+            Ok(())
+        } else {
+            Err(GuardViolation::Transition {
+                from: self,
+                to: next,
+            })
+        }
     }
 }
 
@@ -220,8 +233,14 @@ impl RepairStage {
         }
     }
 
-    pub fn parse(_raw: &str) -> Result<Self, InvalidField> {
-        todo!()
+    pub fn parse(raw: &str) -> Result<Self, InvalidField> {
+        Self::ALL
+            .into_iter()
+            .find(|stage| stage.status().as_str() == raw)
+            .ok_or(InvalidField::new(
+                "status",
+                "status must be InProgress or Ready",
+            ))
     }
 }
 
@@ -256,6 +275,8 @@ pub enum GuardViolation {
     ApprovalMissing,
     #[error("Cannot enter Ready without a recorded repair check")]
     RepairCheckMissing,
+    #[error("Incurred charges exceed the supported amount")]
+    ChargesOverflow,
     #[error("Decision time cannot be represented as RFC 3339")]
     InvalidDecisionTime,
 }
@@ -263,12 +284,19 @@ pub enum GuardViolation {
 impl GuardViolation {
     /// The recorded value the rule requires, as the contract names it in `details.guard`.
     pub const fn guard(self) -> Option<&'static str> {
-        todo!()
+        match self {
+            Self::ApprovalMissing => Some("client_decision.Approved"),
+            Self::RepairCheckMissing => Some("repair_checked"),
+            _ => None,
+        }
     }
 
     /// The state a rejected transition asked for.
     pub const fn requested_status(self) -> Option<OrderStatus> {
-        todo!()
+        match self {
+            Self::Transition { to, .. } => Some(to),
+            _ => None,
+        }
     }
 }
 
@@ -380,8 +408,57 @@ impl RepairOrder {
 
     /// Starts the repair, records incurred charges and the repair check, or finishes the
     /// repair (REQ-F-009–011, SRS §3.1).
-    pub fn record_repair_work(&self, _work: RepairWork) -> Result<Changed, GuardViolation> {
-        todo!()
+    pub fn record_repair_work(&self, work: RepairWork) -> Result<Changed, GuardViolation> {
+        let target = work.stage.status();
+        if self.status != OrderStatus::InProgress || target != OrderStatus::InProgress {
+            self.status.check_move(target)?;
+        }
+        if self.status == OrderStatus::Diagnosing
+            && (self.estimate.is_none()
+                || !matches!(
+                    self.client_decision,
+                    Some(ClientDecision {
+                        decision: Decision::Approved,
+                        ..
+                    })
+                ))
+        {
+            return Err(GuardViolation::ApprovalMissing);
+        }
+        let mut order = self.clone();
+        order.status = target;
+        order.used_parts = work.used_parts.unwrap_or(self.used_parts);
+        order.completed_labor = work.completed_labor.unwrap_or(self.completed_labor);
+        order.repair_checked = work.repair_checked.unwrap_or(self.repair_checked);
+        if target == OrderStatus::Ready && !order.repair_checked {
+            return Err(GuardViolation::RepairCheckMissing);
+        }
+        if order
+            .used_parts
+            .get()
+            .checked_add(order.completed_labor.get())
+            .is_none()
+        {
+            return Err(GuardViolation::ChargesOverflow);
+        }
+        let mut changes = Vec::new();
+        changes.extend(FieldChange::diff("status", &self.status, &order.status));
+        changes.extend(FieldChange::diff(
+            "used_parts_cents",
+            &self.used_parts,
+            &order.used_parts,
+        ));
+        changes.extend(FieldChange::diff(
+            "completed_labor_cents",
+            &self.completed_labor,
+            &order.completed_labor,
+        ));
+        changes.extend(FieldChange::diff(
+            "repair_checked",
+            &self.repair_checked,
+            &order.repair_checked,
+        ));
+        Ok((order, changes))
     }
 }
 

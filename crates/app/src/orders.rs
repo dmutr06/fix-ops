@@ -5,7 +5,7 @@ use fixops_domain::client::LoyaltyTier;
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::order::{
     ClientDecision, DiagnosticFindings, Estimate, GuardViolation, NewRepairOrder, OrderStatus,
-    RepairOrder, TicketNumber,
+    RepairOrder, RepairWork, TicketNumber,
 };
 use fixops_domain::pricing::{Settlement, current_settlement};
 use fixops_domain::staff::{Action, Actor};
@@ -155,6 +155,43 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(order.into())
     }
 
+    pub async fn update_repair_work(
+        &self,
+        actor: Actor,
+        id: OrderId,
+        work: RepairWork,
+    ) -> AppResult<OrderView> {
+        crate::authorize(actor, Action::UpdateRepairWork)?;
+        let current = self
+            .store
+            .find_order(id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let (order, changes) = current.record_repair_work(work).map_err(|e| {
+            let mut error = guard(e).with("current_status", current.status);
+            if let Some(value) = e.guard() {
+                error = error.with("guard", value);
+            }
+            if let Some(value) = e.requested_status() {
+                error = error.with("requested_status", value);
+            }
+            error
+        })?;
+        let view = self.view_order(order).await?;
+        self.save_order(actor, &view.order, &changes).await?;
+        Ok(view)
+    }
+
+    async fn view_order(&self, order: RepairOrder) -> AppResult<OrderView> {
+        let client = self
+            .store
+            .find_client(order.client_id)
+            .await?
+            .ok_or_else(AppError::not_found)?;
+        let settlement = current_settlement(&order, client.loyalty_tier);
+        Ok(OrderView { order, settlement })
+    }
+
     async fn save_order(
         &self,
         actor: Actor,
@@ -170,7 +207,8 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
     pub async fn get_order(&self, actor: Actor, id: OrderId) -> AppResult<OrderView> {
         crate::authorize(actor, Action::GetRepairOrder)?;
         let order = self.store.find_order(id).await?;
-        Ok(order.ok_or_else(AppError::not_found)?.into())
+        self.view_order(order.ok_or_else(AppError::not_found)?)
+            .await
     }
 
     pub async fn list_orders(
@@ -180,7 +218,11 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
     ) -> AppResult<Vec<OrderView>> {
         crate::authorize(actor, Action::ListRepairOrders)?;
         let orders = self.store.list_orders(&filter).await?;
-        Ok(orders.into_iter().map(Into::into).collect())
+        let mut views = Vec::with_capacity(orders.len());
+        for order in orders {
+            views.push(self.view_order(order).await?);
+        }
+        Ok(views)
     }
 }
 
