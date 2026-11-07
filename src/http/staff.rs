@@ -6,12 +6,13 @@ use axum::http::StatusCode;
 use axum::routing::{get, patch};
 use fixops_app::{AppError, ErrorKind};
 use fixops_domain::id::StaffId;
-use fixops_domain::staff::{NewStaffAccount, Password, Role, StaffAccount, Username};
+use fixops_domain::staff::{Action, NewStaffAccount, Password, Role, StaffAccount, Username};
 use serde::{Deserialize, Serialize};
 
 use super::auth::SignedIn;
+use super::json::{self, Json};
 use super::params::PathId;
-use super::{ApiError, AppState, Json};
+use super::{ApiError, AppState};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -50,7 +51,9 @@ struct StaffCreateRequest {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct StaffUpdateRequest {
+    #[serde(default, deserialize_with = "json::not_null")]
     role: Option<String>,
+    #[serde(default, deserialize_with = "json::not_null")]
     enabled: Option<bool>,
 }
 
@@ -74,8 +77,10 @@ async fn list(
 async fn create(
     State(state): State<AppState>,
     SignedIn(actor): SignedIn,
-    Json(body): Json<StaffCreateRequest>,
+    body: Result<Json<StaffCreateRequest>, ApiError>,
 ) -> Result<(StatusCode, Json<StaffAccountDto>), ApiError> {
+    state.app.authorize(actor, Action::CreateStaffAccount)?;
+    let Json(body) = body?;
     let account = NewStaffAccount {
         username: Username::parse(&body.username)?,
         password: Password::parse(body.password)?,
@@ -88,9 +93,12 @@ async fn create(
 async fn update(
     State(state): State<AppState>,
     SignedIn(actor): SignedIn,
-    PathId(id): PathId,
-    Json(body): Json<StaffUpdateRequest>,
+    id: Result<PathId, ApiError>,
+    body: Result<Json<StaffUpdateRequest>, ApiError>,
 ) -> Result<Json<StaffAccountDto>, ApiError> {
+    state.app.authorize(actor, Action::UpdateStaffAccount)?;
+    let PathId(id) = id?;
+    let Json(body) = body?;
     if body.role.is_none() && body.enabled.is_none() {
         return Err(AppError::new(
             ErrorKind::Validation,

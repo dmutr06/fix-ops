@@ -149,11 +149,13 @@ pub trait PasswordHasher: Send + Sync {
         password: &Password,
     ) -> impl Future<Output = Result<PasswordHash, StoreError>> + Send;
 
-    /// Whether `password` matches `hash`.
+    /// Whether `password` matches `hash`. With `None` (no such account) the adapter does the
+    /// same hashing work against a dummy hash and answers `false`, so the response time does
+    /// not reveal whether a username exists.
     fn verify_password(
         &self,
         password: &str,
-        hash: &PasswordHash,
+        hash: Option<&PasswordHash>,
     ) -> impl Future<Output = Result<bool, StoreError>> + Send;
 }
 
@@ -170,19 +172,13 @@ impl<S: StaffStore + PasswordHasher> App<S> {
         if password.is_empty() {
             return Err(AppError::validation("password", "password is required"));
         }
-        let credentials = self
-            .store
-            .find_credentials(&username)
-            .await?
-            .ok_or_else(invalid_credentials)?;
-        if !self
-            .store
-            .verify_password(password, &credentials.password_hash)
-            .await?
-        {
-            return Err(invalid_credentials());
-        }
-        let account = credentials.account;
+        let credentials = self.store.find_credentials(&username).await?;
+        let hash = credentials.as_ref().map(|c| &c.password_hash);
+        let verified = self.store.verify_password(password, hash).await?;
+        let account = credentials
+            .filter(|_| verified)
+            .ok_or_else(invalid_credentials)?
+            .account;
         if !account.enabled {
             return Err(
                 AppError::forbidden("Staff account is disabled").with("username", &username)
@@ -314,7 +310,10 @@ mod tests {
         assert!(!format!("{hash:?}").contains("argon2"));
     }
 
-    #[expect(clippy::unused_async_trait_impl, reason = "the fake ports answer immediately")]
+    #[expect(
+        clippy::unused_async_trait_impl,
+        reason = "the fake ports answer immediately"
+    )]
     mod sign_in {
         use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -404,10 +403,10 @@ mod tests {
             async fn verify_password(
                 &self,
                 password: &str,
-                hash: &PasswordHash,
+                hash: Option<&PasswordHash>,
             ) -> Result<bool, StoreError> {
                 self.verifications.fetch_add(1, Ordering::SeqCst);
-                Ok(hash.0 == password)
+                Ok(hash.is_some_and(|hash| hash.0 == password))
             }
         }
 
