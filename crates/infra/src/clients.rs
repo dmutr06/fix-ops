@@ -20,6 +20,13 @@ struct ClientRow {
     loyalty_tier: String,
 }
 
+#[derive(FromRow)]
+struct VersionedClientRow {
+    #[sqlx(flatten)]
+    client: ClientRow,
+    version: i64,
+}
+
 impl TryFrom<ClientRow> for Client {
     type Error = sqlx::Error;
 
@@ -97,7 +104,15 @@ impl ClientStore for PgStore {
         &self,
         id: ClientId,
     ) -> Result<Option<(Client, i64)>, StoreError> {
-        Ok(self.find_client(id).await?.map(|client| (client, 0)))
+        let row = sqlx::query_as::<_, VersionedClientRow>(
+            "SELECT id, name, phone, email, loyalty_tier, version FROM clients WHERE id = $1",
+        )
+        .bind(id.0)
+        .fetch_optional(self.pool())
+        .await
+        .map_err(store_error)?;
+        row.map(|row| Ok((row.client.try_into().map_err(store_error)?, row.version)))
+            .transpose()
     }
 
     async fn update_client(
@@ -107,13 +122,14 @@ impl ClientStore for PgStore {
         version: i64,
         changes: &[FieldChange],
     ) -> Result<(), StoreError> {
-        let _ = version;
         let mut tx = self.pool().begin().await.map_err(store_error)?;
-        sqlx::query(
-            "UPDATE clients SET name = $2, phone = $3, email = $4, loyalty_tier = $5
-             WHERE id = $1",
+        let updated = sqlx::query(
+            "UPDATE clients
+             SET name = $3, phone = $4, email = $5, loyalty_tier = $6, version = version + 1
+             WHERE id = $1 AND version = $2",
         )
         .bind(client.id.0)
+        .bind(version)
         .bind(client.name.as_str())
         .bind(client.phone.as_str())
         .bind(client.email.as_ref().map(Email::as_str))
@@ -121,6 +137,10 @@ impl ClientStore for PgStore {
         .execute(&mut *tx)
         .await
         .map_err(store_error)?;
+        // Dropping the transaction rolls it back, so a stale save writes nothing.
+        if updated.rows_affected() == 0 {
+            return Err(StoreError::Stale);
+        }
         insert_audit(&mut tx, actor, RecordType::Client, client.id.0, changes)
             .await
             .map_err(store_error)?;
