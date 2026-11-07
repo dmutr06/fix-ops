@@ -3,7 +3,7 @@
 //! `labor_discount_cents` and `settlement_cents` are always derived here, never entered.
 
 use crate::money::Cents;
-use crate::order::RepairOrder;
+use crate::order::{OrderStatus, RepairOrder};
 
 /// The labor discount and the amount owed for an order.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -22,9 +22,22 @@ impl Settlement {
 
 /// The settlement an order shows now: the stored one once the order is terminal, otherwise
 /// the amount computed from what has been incurred so far.
+///
+/// Intake only creates `Received` orders, which owe nothing: no findings are saved and no
+/// charge has been incurred (SRS §3.2). The other open states, the client's tier and the
+/// labor discount are added together with the transitions that reach them.
+///
+/// # Panics
+///
+/// For an open order past `Received`, which intake cannot produce.
 pub fn current_settlement(order: &RepairOrder) -> Settlement {
-    let _ = order;
-    todo!()
+    if let Some(settlement) = order.final_settlement {
+        return settlement;
+    }
+    match order.status {
+        OrderStatus::Received => Settlement::NONE,
+        status => unimplemented!("settlement of an open {status} order"),
+    }
 }
 
 #[cfg(test)]

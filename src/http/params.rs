@@ -33,9 +33,26 @@ impl<S: Send + Sync> FromRequestParts<S> for PathId {
 
 /// Checks an optional id filter: present values must be at least 1.
 pub fn positive_id(field: &'static str, id: Option<i64>) -> Result<Option<i64>, AppError> {
-    match id {
-        Some(id) if id < 1 => Err(invalid_id(field)),
-        _ => Ok(id),
+    id.map(|id| record_id(field, id)).transpose()
+}
+
+/// Checks a record id in a request body: it must be at least 1.
+pub fn record_id(field: &'static str, id: i64) -> Result<i64, AppError> {
+    if id >= 1 {
+        Ok(id)
+    } else {
+        Err(invalid_id(field))
+    }
+}
+
+/// Checks an optional text filter: present values must not be empty (`minLength: 1`).
+pub fn non_empty(field: &'static str, text: Option<String>) -> Result<Option<String>, AppError> {
+    match text {
+        Some(text) if text.is_empty() => Err(AppError::validation(
+            field,
+            format!("{field} must not be empty"),
+        )),
+        _ => Ok(text),
     }
 }
 

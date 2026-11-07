@@ -1370,7 +1370,7 @@ async fn order_for_a_device_of_another_client_conflicts(pool: PgPool) {
     assert_eq!(snapshot(&app, &s.admin).await, before);
 }
 
-/// REQ-F-005 and the glossary name an assigned Technician; see logs/test_gate_p2.md for why an
+/// REQ-F-005 and the glossary name an assigned Technician; see `logs/test_gate_p2.md` for why an
 /// Administrator does not count.
 #[sqlx::test(migrator = "fixops_infra::MIGRATOR")]
 async fn order_assignee_must_be_a_technician(pool: PgPool) {

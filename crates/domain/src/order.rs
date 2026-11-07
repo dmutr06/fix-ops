@@ -7,11 +7,11 @@ use time::OffsetDateTime;
 use crate::audit::FieldChange;
 use crate::client::Client;
 use crate::device::Device;
-use crate::error::InvalidField;
+use crate::error::{InvalidField, required_text};
 use crate::id::{ClientId, DeviceId, OrderId, StaffId};
 use crate::money::Cents;
 use crate::pricing::Settlement;
-use crate::staff::StaffAccount;
+use crate::staff::{Role, StaffAccount};
 
 /// Lifecycle state from SRS §3.1.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,8 +46,13 @@ impl OrderStatus {
     }
 
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        Self::ALL
+            .into_iter()
+            .find(|status| status.as_str() == raw)
+            .ok_or(InvalidField::new(
+                "status",
+                "status must be Received, Diagnosing, InProgress, Ready, Completed or Cancelled",
+            ))
     }
 }
 
@@ -63,8 +68,12 @@ pub struct TicketNumber(String);
 
 impl TicketNumber {
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        required_text(
+            "ticket_number",
+            "ticket_number is required and cannot be empty",
+            raw,
+        )
+        .map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -86,11 +95,23 @@ pub enum Decision {
 }
 
 impl Decision {
+    pub const ALL: [Self; 2] = [Self::Approved, Self::Declined];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Approved => "Approved",
             Self::Declined => "Declined",
         }
+    }
+
+    pub fn parse(raw: &str) -> Result<Self, InvalidField> {
+        Self::ALL
+            .into_iter()
+            .find(|decision| decision.as_str() == raw)
+            .ok_or(InvalidField::new(
+                "decision",
+                "decision must be Approved or Declined",
+            ))
     }
 }
 
@@ -178,13 +199,29 @@ impl NewRepairOrder {
         device: &Device,
         assignee: &StaffAccount,
     ) -> Result<Self, IntakeError> {
-        let _ = (ticket_number, client, device, assignee);
-        todo!()
+        if device.client_id != client.id {
+            return Err(IntakeError::DeviceOfAnotherClient);
+        }
+        if assignee.role != Role::Technician {
+            return Err(IntakeError::AssigneeNotTechnician);
+        }
+        Ok(Self {
+            ticket_number,
+            client_id: client.id,
+            device_id: device.id,
+            assigned_technician_id: assignee.id,
+        })
     }
 
     /// Audit changes for the creation: the ticket, the three links and the starting status.
     pub fn changes(&self) -> Vec<FieldChange> {
-        todo!()
+        vec![
+            FieldChange::created("ticket_number", &self.ticket_number),
+            FieldChange::created("client_id", self.client_id),
+            FieldChange::created("device_id", self.device_id),
+            FieldChange::created("assigned_technician_id", self.assigned_technician_id),
+            FieldChange::created("status", Self::STATUS),
+        ]
     }
 }
 
@@ -193,7 +230,7 @@ pub(crate) mod tests {
     use super::*;
     use crate::client::{ClientName, LoyaltyTier, Phone};
     use crate::device::{DeviceType, SerialNumber, Symptoms};
-    use crate::staff::{Role, Username};
+    use crate::staff::Username;
 
     /// A freshly received order with nothing recorded yet.
     pub(crate) fn received() -> RepairOrder {
@@ -258,6 +295,14 @@ pub(crate) mod tests {
         for invalid in ["received", "Done", "", "In Progress"] {
             assert_eq!(OrderStatus::parse(invalid).unwrap_err().field, "status");
         }
+    }
+
+    #[test]
+    fn decision_parses_the_two_contract_names_only() {
+        for decision in Decision::ALL {
+            assert_eq!(Decision::parse(decision.as_str()), Ok(decision));
+        }
+        assert_eq!(Decision::parse("approved").unwrap_err().field, "decision");
     }
 
     #[test]

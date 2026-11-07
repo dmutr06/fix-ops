@@ -13,8 +13,10 @@ impl Cents {
 
     /// Accepts `value` when it is not negative. `field` names the contract field for the error.
     pub fn new(field: &'static str, value: i64) -> Result<Self, InvalidField> {
-        let _ = (field, value);
-        todo!()
+        if value < 0 {
+            return Err(InvalidField::new(field, "amount must not be negative"));
+        }
+        Ok(Self(value))
     }
 
     pub const fn get(self) -> i64 {
@@ -24,8 +26,7 @@ impl Cents {
 
 impl fmt::Display for Cents {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let _ = f;
-        todo!()
+        self.0.fmt(f)
     }
 }
 

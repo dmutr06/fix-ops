@@ -3,7 +3,7 @@
 use std::fmt;
 
 use crate::audit::FieldChange;
-use crate::error::InvalidField;
+use crate::error::{InvalidField, required_text};
 use crate::id::{ClientId, DeviceId};
 
 /// Kind of device from the glossary.
@@ -26,8 +26,13 @@ impl DeviceType {
     }
 
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == raw)
+            .ok_or(InvalidField::new(
+                "device_type",
+                "device_type must be Desktop, Laptop or Server",
+            ))
     }
 }
 
@@ -37,8 +42,12 @@ pub struct SerialNumber(String);
 
 impl SerialNumber {
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        required_text(
+            "serial_number",
+            "serial_number is required and cannot be empty",
+            raw,
+        )
+        .map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -52,8 +61,12 @@ pub struct Symptoms(String);
 
 impl Symptoms {
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
-        let _ = raw;
-        todo!()
+        required_text(
+            "reported_symptoms",
+            "reported_symptoms is required and cannot be empty",
+            raw,
+        )
+        .map(Self)
     }
 
     pub fn as_str(&self) -> &str {
@@ -101,7 +114,12 @@ pub struct NewDevice {
 impl NewDevice {
     /// Audit changes for the creation: every field.
     pub fn changes(&self) -> Vec<FieldChange> {
-        todo!()
+        vec![
+            FieldChange::created("client_id", self.client_id),
+            FieldChange::created("device_type", self.device_type),
+            FieldChange::created("serial_number", &self.serial_number),
+            FieldChange::created("reported_symptoms", &self.reported_symptoms),
+        ]
     }
 }
 
@@ -117,8 +135,29 @@ impl Device {
     /// Applies `patch` and returns the updated device with one change per changed field.
     #[must_use]
     pub fn update(&self, patch: DevicePatch) -> (Self, Vec<FieldChange>) {
-        let _ = patch;
-        todo!()
+        let updated = Self {
+            device_type: patch.device_type.unwrap_or(self.device_type),
+            serial_number: patch
+                .serial_number
+                .unwrap_or_else(|| self.serial_number.clone()),
+            reported_symptoms: patch
+                .reported_symptoms
+                .unwrap_or_else(|| self.reported_symptoms.clone()),
+            ..self.clone()
+        };
+        let changes = [
+            FieldChange::diff("device_type", &self.device_type, &updated.device_type),
+            FieldChange::diff("serial_number", &self.serial_number, &updated.serial_number),
+            FieldChange::diff(
+                "reported_symptoms",
+                &self.reported_symptoms,
+                &updated.reported_symptoms,
+            ),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        (updated, changes)
     }
 }
 
