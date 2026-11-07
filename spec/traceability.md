@@ -23,6 +23,7 @@ IDs refer to [`srs.md`](srs.md) and [`openapi.yaml`](openapi.yaml). Packages and
 | REQ-F-017 | AC-F-017 | 011, 015 | `setClientLoyaltyTier` | P2 | FIX-30, 31, 32 | |
 | REQ-F-018 | AC-F-018 | 016 | `correctRepairOrder`, `listAuditLogs` | P6 | FIX-42, 43, 44 | ADD-001, ADD-002 |
 | REQ-F-019 | AC-F-019 | — | `createSession`, `listStaffAccounts`, `createStaffAccount`, `updateStaffAccount` | P1 | FIX-27, 28, 29 | ADD-002 |
+| REQ-F-020 | AC-F-020 | 021 | `updateStaffAccount` | ADD-003 | FIX-54 | ADD-003 |
 | REQ-NF-001 | AC-NF-001 | — | `listClients`, `getClient`, `listDevices`, `getDevice`, `listRepairOrders`, `createRepairOrder`, `getRepairOrder` (2s latency SLA across routine actions) | P7 | FIX-45, 46, 47 | ADD-002 |
 | REQ-NF-002 | AC-NF-002 | 011, 018, 019, 020 | `createSession`; `bearerAuth` and `x-roles` on all 25 protected operations | P1 | FIX-27, 28, 29 | ADD-001, ADD-002 |
 | REQ-NF-003 | AC-NF-003 | 016 | `listAuditLogs`; audit trail on all 17 state-changing operations | P1, P6 | FIX-27, 28, 29, 42, 43, 44 | ADD-001, ADD-002 |
