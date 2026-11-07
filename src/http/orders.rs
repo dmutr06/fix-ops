@@ -79,7 +79,9 @@ impl From<OrderView> for RepairOrderDto {
             device_id: order.device_id.0,
             assigned_technician_id: order.assigned_technician_id.0,
             status: order.status.as_str(),
-            diagnostic_findings: order.diagnostic_findings,
+            diagnostic_findings: order
+                .diagnostic_findings
+                .map(|findings| findings.as_str().to_owned()),
             estimate: order.estimate.map(|estimate| EstimateDto {
                 parts_cents: estimate.parts.get(),
                 labor_cents: estimate.labor.get(),

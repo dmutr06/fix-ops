@@ -18,6 +18,8 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+pub mod workshop;
+
 /// Username of the Administrator created by [`TestApp::admin_token`].
 pub const ADMIN: &str = "root.admin";
 /// Password of every account the helpers create.

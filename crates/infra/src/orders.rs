@@ -6,8 +6,8 @@ use fixops_domain::audit::{FieldChange, RecordType};
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::money::Cents;
 use fixops_domain::order::{
-    ClientDecision, Decision, Estimate, NewRepairOrder, OrderStatus, Payment, RepairOrder,
-    TicketNumber,
+    ClientDecision, Decision, DiagnosticFindings, Estimate, NewRepairOrder, OrderStatus, Payment,
+    RepairOrder, TicketNumber,
 };
 use fixops_domain::pricing::Settlement;
 use sqlx::FromRow;
@@ -94,7 +94,12 @@ impl TryFrom<OrderRow> for RepairOrder {
             device_id: DeviceId(row.device_id),
             assigned_technician_id: StaffId(row.assigned_technician_id),
             status: OrderStatus::parse(&row.status).map_err(decode_error)?,
-            diagnostic_findings: row.diagnostic_findings,
+            diagnostic_findings: row
+                .diagnostic_findings
+                .as_deref()
+                .map(DiagnosticFindings::parse)
+                .transpose()
+                .map_err(decode_error)?,
             estimate,
             client_decision,
             used_parts: cents("used_parts_cents", row.used_parts_cents)?,

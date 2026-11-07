@@ -1,6 +1,7 @@
 //! Repair-order intake and reading (REQ-F-005).
 
 use fixops_domain::audit::FieldChange;
+use fixops_domain::client::LoyaltyTier;
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::order::{NewRepairOrder, OrderStatus, RepairOrder, TicketNumber};
 use fixops_domain::pricing::{Settlement, current_settlement};
@@ -29,7 +30,8 @@ pub struct OrderView {
 
 impl From<RepairOrder> for OrderView {
     fn from(order: RepairOrder) -> Self {
-        let settlement = current_settlement(&order);
+        // Only `Received` orders exist so far, and they owe nothing whatever the tier.
+        let settlement = current_settlement(&order, LoyaltyTier::Standard);
         Self { order, settlement }
     }
 }
