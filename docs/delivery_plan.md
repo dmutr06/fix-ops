@@ -1,8 +1,8 @@
 # Delivery plan
 
-**Tracker:** [FixOps project](https://linear.app/fixops/project/fixops-965d39cb6a8a) (Linear, team FIX) · **Scope:** [SRS 1.0.2](../spec/srs.md) — 23 requirements, 20 BDD scenarios · **Status:** P1 and P2 verified; ACCESS-GATE GO; P3 in progress.
+**Tracker:** [FixOps project](https://linear.app/fixops/project/fixops-965d39cb6a8a) (Linear, team FIX) · **Scope:** [SRS 1.0.3](../spec/srs.md) — 24 requirements, 21 BDD scenarios · **Status:** P1–P7 verified; all gates GO.
 
-The service uses axum, Tokio and PostgreSQL. Platform choices are in [stack](stack.md) and [architecture](architecture.md). Staff access, audit logging and intake are implemented and verified; later packages follow the dependencies below. The original schedule is retained as the planning baseline, not a current forecast.
+The service uses axum, Tokio and PostgreSQL. Platform choices are in [stack](stack.md) and [architecture](architecture.md). All packages are implemented and verified; the order of work followed the dependencies below. The original schedule is retained as the planning baseline, not a current forecast.
 
 ## Work packages
 
@@ -27,9 +27,9 @@ Control tickets:
 | [FIX-25](https://linear.app/fixops/issue/FIX-25) | Planning documents | Done |
 | [FIX-26](https://linear.app/fixops/issue/FIX-26) | PLAN-GATE | GO |
 | [FIX-48](https://linear.app/fixops/issue/FIX-48) | ACCESS-GATE: staff access verified | GO |
-| [FIX-49](https://linear.app/fixops/issue/FIX-49) | FINANCIAL-DATA-GATE: pricing, lifecycle, audit, performance, recovery verified | Open |
-| [FIX-50](https://linear.app/fixops/issue/FIX-50) | Human validation of the staff workflow | Open |
-| [FIX-51](https://linear.app/fixops/issue/FIX-51) | RELEASE-GATE | Open |
+| [FIX-49](https://linear.app/fixops/issue/FIX-49) | FINANCIAL-DATA-GATE: pricing, lifecycle, audit, performance, recovery verified | GO |
+| [FIX-50](https://linear.app/fixops/issue/FIX-50) | Human validation of the staff workflow | Done |
+| [FIX-51](https://linear.app/fixops/issue/FIX-51) | RELEASE-GATE | GO |
 
 P1 defines the shared audit contract (atomic write + audit entry). P2–P5 tests check audit fields for each change as it is built; P6 completes coverage and adds corrections. A change without an audit entry is never accepted on the grounds that P6 comes later.
 

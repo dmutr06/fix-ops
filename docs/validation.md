@@ -1,6 +1,6 @@
 # Staff API validation walkthrough
 
-This is a human checklist for the FixOps **API**. The frontend is not implemented. No human validation has been recorded: leave results **pending** until an operator runs the checks. Use a disposable local database and unique ticket numbers; the bootstrap Administrator is created only when no staff accounts exist.
+This is a human checklist for the FixOps **API**. The frontend is not implemented. Results are recorded in [validation_staff_workflow](../logs/validation_staff_workflow.md). Use a disposable local database and unique ticket numbers; the bootstrap Administrator is created only when no staff accounts exist.
 
 ## Start the service and sign in
 
