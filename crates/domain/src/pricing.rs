@@ -21,6 +21,21 @@ impl Settlement {
     };
 }
 
+/// The labor discount rate of a tier in percent: Standard 0, Silver 10, Gold 20.
+pub const fn discount_percent(_tier: LoyaltyTier) -> i64 {
+    todo!()
+}
+
+/// The tier discount on `labor`, rounded to whole cents with an exact half cent rounded up.
+pub fn labor_discount(_labor: Cents, _tier: LoyaltyTier) -> Cents {
+    todo!()
+}
+
+/// The total of a repair: used parts plus completed labor minus the labor-only discount.
+pub fn repair_total(_used_parts: Cents, _completed_labor: Cents, _tier: LoyaltyTier) -> Settlement {
+    todo!()
+}
+
 /// The settlement an order shows now: the stored one once the order is terminal, otherwise
 /// the amount computed from what has been incurred so far with the client's current `tier`.
 pub fn current_settlement(order: &RepairOrder, _tier: LoyaltyTier) -> Settlement {
@@ -44,6 +59,28 @@ mod tests {
         assert_eq!(
             current_settlement(&received(), LoyaltyTier::Gold),
             Settlement::NONE
+        );
+    }
+    #[test]
+    fn repair_pricing_discounts_only_labor_and_rounds_half_up() {
+        let cents = |n| Cents::new("amount", n).unwrap();
+        assert_eq!(
+            repair_total(cents(10000), cents(10000), LoyaltyTier::Silver),
+            Settlement {
+                labor_discount: cents(1000),
+                total: cents(19000)
+            }
+        );
+        assert_eq!(
+            repair_total(cents(0), cents(5), LoyaltyTier::Silver),
+            Settlement {
+                labor_discount: cents(1),
+                total: cents(4)
+            }
+        );
+        assert_eq!(
+            labor_discount(cents(i64::MAX), LoyaltyTier::Gold).get(),
+            1_844_674_407_370_955_161
         );
     }
 }
