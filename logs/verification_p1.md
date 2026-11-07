@@ -1,10 +1,14 @@
 # VERIFICATION P1: Staff access and accounts
 
-**Decision:** recommendation FAIL (three defects, one Medium) · **Ticket:** [FIX-29](https://linear.app/fixops/issue/FIX-29) · **Scope:** REQ-F-001, REQ-F-002, REQ-F-019, REQ-NF-002, REQ-NF-003 (staff and audit part), BDD-011 and BDD-017 as far as P1 endpoints exist, [ADD-002](../spec/addenda/ADD-002-api-contract.md) §1–2 and §5 for `/sessions`, `/staff`, `/staff/{staffId}`, `/audit-logs` · **Baseline:** [SRS 1.0.2](../spec/srs.md), [ADD-001](../spec/addenda/ADD-001-permissions.md), [`openapi.yaml`](../spec/openapi.yaml), [architecture](../docs/architecture.md) · **Code:** `origin/main` at `docs: describe session, hashing and bootstrap decisions`
+**Decision:** recommendation PASS (run 2; run 1 was FAIL, its three defects are fixed and re-verified) · **Ticket:** [FIX-29](https://linear.app/fixops/issue/FIX-29) · **Scope:** REQ-F-001, REQ-F-002, REQ-F-019, REQ-NF-002, REQ-NF-003 (staff and audit part), BDD-011 and BDD-017 as far as P1 endpoints exist, [ADD-002](../spec/addenda/ADD-002-api-contract.md) §1–2 and §5 for `/sessions`, `/staff`, `/staff/{staffId}`, `/audit-logs` · **Baseline:** [SRS 1.0.2](../spec/srs.md), [ADD-001](../spec/addenda/ADD-001-permissions.md), [`openapi.yaml`](../spec/openapi.yaml), [architecture](../docs/architecture.md) · **Code:** `origin/main` at `docs: describe session, hashing and bootstrap decisions`
+
+Run 1 below is kept as history; the current result is [Run 2](#run-2).
 
 Checked by a performer who did not write the code. Expected values come from the SRS, the addenda, the contract and the architecture, not from code output. No product code was changed.
 
-## Commands
+## Run 1
+
+### Commands
 
 | Command | Result |
 |---|---|
@@ -16,7 +20,7 @@ Checked by a performer who did not write the code. Expected values come from the
 | `psql` via `docker exec` on the same database | See [Database checks](#database-checks) |
 | Server stopped, database dropped | Done |
 
-## Requirements
+### Requirements
 
 | Requirement | Check | Evidence | Result |
 |---|---|---|---|
@@ -41,7 +45,7 @@ Checked by a performer who did not write the code. Expected values come from the
 | REQ-NF-003 | Audit is append-only | `UPDATE` and `DELETE` raise `audit_log is append-only`; see limitation on `TRUNCATE` | PASS |
 | ADD-002 §5 | Unified `ErrorResponse` | Every error body has only `code`, `message`, optional `details`; codes from the contract enum | PASS |
 
-## Manual HTTP checks
+### Manual HTTP checks
 
 | Request | Expected | Actual |
 |---|---|---|
@@ -80,7 +84,7 @@ Checked by a performer who did not write the code. Expected values come from the
 | Note: `DELETE /staff` | Not in contract | `405` with empty body, not `ErrorResponse` |
 | Note: `GET /clients` without token | P2 route | `404`; BDD-017 for clients and orders is verified in later packages |
 
-## Database checks
+### Database checks
 
 | Check | Expected | Actual | Result |
 |---|---|---|---|
@@ -91,7 +95,7 @@ Checked by a performer who did not write the code. Expected values come from the
 | `audit_log` completeness | Actor, time, record type, record id, field never null | 33 rows, 0 incomplete; `password` rows have both values `NULL` | PASS |
 | `UPDATE audit_log …` / `DELETE FROM audit_log …` | Refused | `ERROR: audit_log is append-only`, row unchanged | PASS |
 
-## Test review (risk R-11)
+### Test review (risk R-11)
 
 The tests assert contract values (status, `ErrorResponse.code`, exact key sets of `StaffAccount` and `AuditEntry`), and the role matrix is compared with `x-roles` parsed from `openapi.yaml`, so code and test cannot drift together there. Denied actions read the staff list and audit log back. Gaps that let the defects through:
 
@@ -103,7 +107,7 @@ The tests assert contract values (status, `ErrorResponse.code`, exact key sets o
 | `401` tests cover only `GET /staff` and `GET /audit-logs`, not `POST /staff` or `PATCH /staff/{id}` | Verified manually above |
 | Password storage test asserts only `hash != plaintext`; no test of argon2 format, token hash length, or audit `UPDATE`/`DELETE` refusal | Verified manually above |
 
-## Defects
+### Defects
 
 | ID | Severity | Requirement | Description |
 |---|---|---|---|
@@ -111,10 +115,100 @@ The tests assert contract values (status, `ErrorResponse.code`, exact key sets o
 | D-2 | Low | REQ-F-002, ADD-002 §2; architecture § Request flow ("403 before anything else") | `POST /staff` and `PATCH /staff/{staffId}` validate the body before checking the role. `src/http/staff.rs` parses `Username`, `Password` and `role`, and the `Json` extractor rejects malformed bodies, before `create_staff`/`update_staff` call `actor.require`. A Receptionist or Technician with an invalid body gets `400 VALIDATION_ERROR` instead of `403 FORBIDDEN`, and learns the validation rules. Nothing is written. |
 | D-3 | Low | REQ-F-019, contract `StaffUpdateRequest` | `role` and `enabled` are non-nullable in the contract, but `StaffUpdateRequest` uses `Option<…>` without rejecting explicit `null`, so `{"role": null, "enabled": true}` is accepted (`200`) and `null` is treated as absent. Expected `400 VALIDATION_ERROR`. |
 
-## Limitations
+### Limitations (run 1)
 
 - Performance (REQ-NF-001) and backups (REQ-NF-004) are outside P1.
 - BDD-011 (loyalty tier) and BDD-017 for clients, devices and orders need P2–P4 routes; only the P1 equivalents were checked. The role matrix for those operations is checked statically against `x-roles`.
 - Audit append-only is a row-level trigger: `TRUNCATE audit_log` is not blocked (checked inside a rolled-back transaction), and the service connects as the database superuser, which could disable the trigger. A restricted database role for the service would close this; it is a deployment decision, not a P1 acceptance criterion.
 - Not specified, for the gate owner: an Administrator can disable its own account or the last enabled Administrator (possible lockout until the bootstrap variables are used on an empty database); usernames are case-sensitive; `405` responses carry no `ErrorResponse` body.
 - Timing was measured on a local debug build with 8 samples per case.
+
+## Run 2
+
+**Result:** PASS · **Code:** `fix-29/staff-access-fixes` = run 1 log, then `test: cover sign-in timing, role-before-body and null fields`, `fix: hide unknown usernames, check roles first, reject null fields`, `docs: describe check order, null fields and audit log triggers`, on top of `main` with operational logging · **Gate-owner decisions:** fix D-1, D-2, D-3 and block `TRUNCATE` on `audit_log`; accept the limitations listed under [Limitations](#limitations)
+
+### Commands
+
+| Command | Result |
+|---|---|
+| `cargo fmt --all --check` | Clean |
+| `cargo clippy --workspace --all-targets -- -D warnings` | 0 warnings |
+| `cargo test --workspace` | 74 passed, 0 failed: `staff_access` 32 (+4), `logging` 4, `permissions` 3, `contract` 3, `platform` 2, `fixops-domain` 16, `fixops-app` 8 (+2), `fixops-infra` 3 (+3), `fixops` lib 3 (+1) |
+| `cargo run --release` on a fresh database, `FIXOPS_LOG_DIR` in a temp dir | Migrations ran (including `audit_log_no_truncate`), first Administrator created, 202 requests served, no `ERROR` lines, no `500` |
+| HTTP checks (run 1 script plus 22 new checks) | 121 checks: 117 as expected, 0 mismatches, 4 notes (same as run 1) |
+| Server stopped, database dropped | Done |
+
+### Review of the test and fix commits
+
+| Item | Finding | Result |
+|---|---|---|
+| `denied_roles_get_403_whatever_the_body` | Receptionist and Technician get `403` for invalid, incomplete, unknown-field and malformed bodies, `null` fields, and ids `0`, `abc`, `999999`; staff list and audit log read back unchanged. Expresses ADD-002 §2 and §5 | OK |
+| `missing_session_gets_401_whatever_the_body` | No token with malformed body or invalid id → `401`; nothing changes. `401` comes before `403` and `400` | OK |
+| `null_fields_in_staff_update_are_rejected` | `null` in `role` or `enabled`, alone or with a valid field → `400`, nothing written. Matches non-nullable `StaffUpdateRequest` | OK |
+| `audit_log_cannot_be_changed_deleted_or_truncated` | `UPDATE`, `DELETE`, `TRUNCATE` refused with the trigger message; rows unchanged | OK |
+| `unknown_username_costs_the_same_password_check` (app unit) | Counts password checks: unknown user and wrong password both do exactly one, same error kind. A behavioural proxy for timing that does not depend on the machine | OK |
+| `password.rs` unit tests | Dummy hash never verifies; it uses the same argon2 parameters as real hashes | OK |
+| Fix D-1 | `verify_password` takes `Option<&PasswordHash>`; with no account it checks a lazily built dummy hash of the same parameters and answers `false` | OK |
+| Fix D-2 | `/staff` handlers take the body and path id as `Result<…>`, call `app.authorize` first, then unwrap. Extractor order (`SignedIn` first) gives `401` → `403` → `400` → `404`/`409`. The use cases still check the role (defence in depth) | OK |
+| Fix D-3 | `json::not_null` on `StaffUpdateRequest` fields; absence stays allowed, explicit `null` → `400` | OK |
+| Generalization | The pattern is documented in the architecture for every future handler. `GET /audit-logs` still parses its query before `authorize`; all roles may read it, so responses cannot differ, but a `400` there is logged without `action` (O-1) | OK, note |
+
+### Former mismatches
+
+| Request | Run 1 | Run 2 |
+|---|---|---|
+| Receptionist / Technician `POST /staff` with 7-character password | `400` | `403 FORBIDDEN` |
+| Receptionist / Technician `PATCH /staff/{id}` `role: "Manager"` | `400` | `403 FORBIDDEN` |
+| Receptionist / Technician `POST /staff` malformed JSON, missing fields, unknown field (new) | not run | `403 FORBIDDEN` |
+| Receptionist / Technician `PATCH` `{}`, `role: null`, `enabled: "no"`, ids `0`, `abc` (new) | not run | `403 FORBIDDEN` |
+| No token, `POST /staff` malformed JSON; `PATCH /staff/0` (new) | not run | `401 UNAUTHENTICATED` |
+| Administrator `PATCH` `{"role": null, "enabled": true}` | `200` | `400 VALIDATION_ERROR` |
+| Administrator `PATCH` `{"role": "Technician", "enabled": null}`, `{"role": null}` (new) | not run | `400 VALIDATION_ERROR` |
+| Sign-in latency, median of 20, release build: wrong password vs unknown user | 233 ms vs 1 ms (debug, 8 samples) | 11.9 ms vs 11.7 ms; repeat with other names 11.8 ms vs 11.7 ms |
+| `TRUNCATE audit_log` | Allowed | `ERROR: audit_log is append-only`, 33 rows kept |
+
+All other run 1 checks gave the same results as in run 1 (sign-in, role per account, disable and token reuse, role change and token reuse, validation, `404`, `409`, audit content and filters).
+
+### Database checks
+
+| Check | Actual | Result |
+|---|---|---|
+| Password hashes | 7 of 7 `$argon2id$v=19$m=19456,t=2,p=1$` | PASS |
+| Session tokens | 3 of 3 rows 32-byte `bytea` | PASS |
+| Audit rows | 33, password rows have both values `NULL` | PASS |
+| Triggers | `audit_log_append_only` (row, `UPDATE`/`DELETE`), `audit_log_no_truncate` (statement, `TRUNCATE`) | PASS |
+| `UPDATE`, `DELETE`, `TRUNCATE` on `audit_log` | All refused; count still 33 | PASS |
+
+### Operational log
+
+JSON-lines file `fixops.log.YYYY-MM-DD` in `FIXOPS_LOG_DIR`, 421 lines.
+
+| Check | Expected | Actual | Result |
+|---|---|---|---|
+| Every request logged once | One `request finished` per request | 202 lines, 202 distinct `request_id`s, none missing | PASS |
+| Level by status | `INFO` < 400, `WARN` 4xx, `ERROR` 5xx | 0 mismatches (30 `INFO`, 172 `WARN`, no 5xx) | PASS |
+| Request id | Echoed from `x-request-id`, generated when missing | `verify-rid-0001` echoed; UUID generated for `/health` | PASS |
+| Actor | `actor_id`, `role` on authenticated requests | Present on all 94 authenticated API requests not answered `401`, except 3 unrouted requests (`/clients`, `/nowhere`, `DELETE /staff`) that have no session extractor | PASS |
+| Action | `action` where known | Present on every routed authenticated request, except 6 `GET /audit-logs` answered `400` (O-1) | PASS, note |
+| Denials | `action denied` with actor, role, action | 34 lines = 35 `403` responses minus 1 disabled-account sign-in (not a role denial) | PASS |
+| Rejections | `request rejected` with `code` for each 4xx | 171 lines = 172 4xx minus the `405` (axum default, not an `ApiError`) | PASS |
+| Changes | `record changed` with field names only | 12 lines, e.g. `fields: "enabled"`, no values | PASS |
+| Secrets | No password, hash or token | 0 hits for the bootstrap password, staff password, wrong password, `$argon2`, the issued admin token, `Bearer`, `Authorization`; `password` appears only as a field name or in validation messages | PASS |
+
+### Defects
+
+None. D-1, D-2 and D-3 from run 1 are fixed and re-verified.
+
+| ID | Kind | Note |
+|---|---|---|
+| O-1 | Observation | `GET /audit-logs` parses its query before `authorize`, so an invalid filter is logged without `action`. Responses are correct because every signed-in role may read the audit log. Worth aligning with the documented handler pattern when P2 adds more query parameters. |
+| O-2 | Observation | `405` responses have an empty body and no `request rejected` line. The contract defines no `405`. |
+
+## Limitations
+
+- Performance (REQ-NF-001) and backups (REQ-NF-004) are outside P1.
+- BDD-011 (loyalty tier) and BDD-017 for clients, devices and orders need P2–P4 routes; only the P1 equivalents were checked here. The role matrix for those operations is checked statically against `x-roles`.
+- Accepted by the gate owner: the service connects to the database as a superuser, which could disable the audit triggers; moved to P7 operations.
+- Accepted by the gate owner: an Administrator can disable its own account or the last enabled Administrator; the spec is silent; candidate addendum.
+- Accepted by the gate owner: usernames are case-sensitive (`Max.Tech` and `max.tech` can coexist); the spec is silent; candidate addendum.
+- Timing was measured on one local machine, release build, 20 sequential samples per case; it shows the gap is closed, not a statistical bound.
