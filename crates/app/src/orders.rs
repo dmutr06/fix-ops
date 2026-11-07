@@ -51,7 +51,8 @@ pub struct OrderFilter {
 /// Port: storage of repair orders.
 pub trait OrderStore: Send + Sync {
     /// Inserts an order in `Received` with its audit `changes` in one transaction. A taken
-    /// ticket number fails with [`StoreError::Duplicate`].
+    /// ticket number fails with [`StoreError::Duplicate`]. Locks and rechecks the assignee's
+    /// Technician role until commit; a changed or missing assignee is [`StoreError::Stale`].
     fn create_order(
         &self,
         actor: StaffId,

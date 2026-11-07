@@ -10,7 +10,7 @@ use fixops_domain::order::{
     RepairOrder, TicketNumber,
 };
 use fixops_domain::pricing::Settlement;
-use fixops_domain::staff::StaffAccount;
+use fixops_domain::staff::{Role, StaffAccount};
 use sqlx::FromRow;
 use time::OffsetDateTime;
 
@@ -129,6 +129,16 @@ impl OrderStore for PgStore {
         changes: &[FieldChange],
     ) -> Result<RepairOrder, StoreError> {
         let mut tx = self.pool().begin().await.map_err(store_error)?;
+        // Hold the assignee role stable through the order/audit commit, as in correction.
+        let role: Option<String> =
+            sqlx::query_scalar("SELECT role FROM staff_accounts WHERE id = $1 FOR SHARE")
+                .bind(order.assigned_technician_id.0)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(store_error)?;
+        if role.as_deref() != Some(Role::Technician.as_str()) {
+            return Err(StoreError::Stale);
+        }
         let created: RepairOrder = sqlx::query_as::<_, OrderRow>(concat!(
             "INSERT INTO repair_orders
                  (ticket_number, client_id, device_id, assigned_technician_id, status)
