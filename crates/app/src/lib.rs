@@ -28,6 +28,17 @@ impl<S> App<S> {
     pub fn store(&self) -> &S {
         &self.store
     }
+
+    /// Checks the role before anything else about a request is looked at. Handlers call it
+    /// before validating the body, so a denied role gets `403` whatever it sent. Use cases
+    /// check again themselves.
+    pub fn authorize(
+        &self,
+        actor: fixops_domain::staff::Actor,
+        action: fixops_domain::staff::Action,
+    ) -> AppResult<()> {
+        authorize(actor, action)
+    }
 }
 
 /// Result of a use case.
