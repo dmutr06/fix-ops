@@ -7,8 +7,8 @@ Use a disposable, fresh PostgreSQL database and a release build. The fixture dir
 Example with the running Compose service and its existing `db` container, from the repository root:
 
 ```sh
-docker compose up -d --wait
-docker compose exec -T db createdb -U fixops fixops_performance
+docker compose -p fix-ops up -d --wait
+docker compose -p fix-ops exec -T db createdb -U fixops fixops_performance
 cargo build --release
 DATABASE_URL=postgres://fixops:fixops@127.0.0.1:5432/fixops_performance \
   FIXOPS_LISTEN_ADDR=127.0.0.1:18080 \
@@ -20,7 +20,7 @@ DATABASE_URL=postgres://fixops:fixops@127.0.0.1:5432/fixops_performance \
 In another terminal, after the server reports it is listening:
 
 ```sh
-docker compose exec -T db psql -v ON_ERROR_STOP=1 -U fixops -d fixops_performance < crates/infra/fixtures/performance.sql
+docker compose -p fix-ops exec -T db psql -v ON_ERROR_STOP=1 -U fixops -d fixops_performance < crates/infra/fixtures/performance.sql
 python3 scripts/check-performance.py
 ```
 
