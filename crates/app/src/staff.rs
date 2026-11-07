@@ -313,4 +313,123 @@ mod tests {
         let hash = PasswordHash("$argon2id$v=19$secret".into());
         assert!(!format!("{hash:?}").contains("argon2"));
     }
+
+    #[expect(clippy::unused_async_trait_impl, reason = "the fake ports answer immediately")]
+    mod sign_in {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        use super::*;
+
+        const PASSWORD: &str = "correct-horse-battery";
+
+        /// One account, `anna`. The fake hash is the password itself; the hasher counts how
+        /// often a password is checked.
+        #[derive(Default)]
+        struct Fake {
+            verifications: AtomicUsize,
+        }
+
+        impl StaffStore for Fake {
+            async fn list_staff(&self) -> Result<Vec<StaffAccount>, StoreError> {
+                unreachable!("not used by sign-in")
+            }
+
+            async fn find_staff(&self, _: StaffId) -> Result<Option<StaffAccount>, StoreError> {
+                unreachable!("not used by sign-in")
+            }
+
+            async fn find_credentials(
+                &self,
+                username: &Username,
+            ) -> Result<Option<Credentials>, StoreError> {
+                Ok((username.as_str() == "anna").then(|| Credentials {
+                    account: StaffAccount {
+                        id: StaffId(1),
+                        username: username.clone(),
+                        role: Role::Receptionist,
+                        enabled: true,
+                    },
+                    password_hash: PasswordHash(PASSWORD.to_owned()),
+                }))
+            }
+
+            async fn create_staff(
+                &self,
+                _: StaffId,
+                _: &NewStaffAccount,
+                _: &PasswordHash,
+                _: &[FieldChange],
+            ) -> Result<StaffAccount, StoreError> {
+                unreachable!("not used by sign-in")
+            }
+
+            async fn create_first_staff(
+                &self,
+                _: &NewStaffAccount,
+                _: &PasswordHash,
+                _: &[FieldChange],
+            ) -> Result<Option<StaffAccount>, StoreError> {
+                unreachable!("not used by sign-in")
+            }
+
+            async fn update_staff(
+                &self,
+                _: StaffId,
+                _: &StaffAccount,
+                _: &[FieldChange],
+                _: bool,
+            ) -> Result<(), StoreError> {
+                unreachable!("not used by sign-in")
+            }
+
+            async fn create_session(
+                &self,
+                _: StaffId,
+                _: &TokenHash,
+                _: OffsetDateTime,
+            ) -> Result<(), StoreError> {
+                Ok(())
+            }
+
+            async fn find_session(&self, _: &TokenHash) -> Result<Option<Session>, StoreError> {
+                unreachable!("not used by sign-in")
+            }
+        }
+
+        impl PasswordHasher for Fake {
+            async fn hash_password(&self, _: &Password) -> Result<PasswordHash, StoreError> {
+                unreachable!("not used by sign-in")
+            }
+
+            async fn verify_password(
+                &self,
+                password: &str,
+                hash: &PasswordHash,
+            ) -> Result<bool, StoreError> {
+                self.verifications.fetch_add(1, Ordering::SeqCst);
+                Ok(hash.0 == password)
+            }
+        }
+
+        async fn checks_for(username: &str, password: &str) -> (ErrorKind, usize) {
+            let app = App::new(Fake::default());
+            let err = app.sign_in(username, password).await.unwrap_err();
+            (err.kind, app.store().verifications.load(Ordering::SeqCst))
+        }
+
+        #[tokio::test]
+        async fn unknown_username_costs_the_same_password_check() {
+            let wrong_password = checks_for("anna", "not-the-password").await;
+            let unknown_user = checks_for("nobody", PASSWORD).await;
+            assert_eq!(wrong_password, (ErrorKind::Unauthenticated, 1));
+            assert_eq!(unknown_user, wrong_password);
+        }
+
+        #[tokio::test]
+        async fn correct_password_signs_in() {
+            let app = App::new(Fake::default());
+            let session = app.sign_in("anna", PASSWORD).await.unwrap();
+            assert_eq!(session.account.id, StaffId(1));
+        }
+    }
 }
