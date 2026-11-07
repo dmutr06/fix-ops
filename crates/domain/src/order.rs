@@ -304,7 +304,10 @@ impl RepairOrder {
         }
         let mut order = self.clone();
         let decision = ClientDecision {
-            decided_at: decision.decided_at.to_offset(UtcOffset::UTC),
+            decided_at: decision
+                .decided_at
+                .to_offset(UtcOffset::UTC)
+                .truncate_to_microsecond(),
             ..decision
         };
         let timestamp = decision
