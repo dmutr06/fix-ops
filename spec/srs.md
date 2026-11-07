@@ -1,6 +1,6 @@
 # Software Requirements Specification: FixOps
 
-**Version:** 1.0.2 — baseline 1.0.0 plus [ADD-001](addenda/ADD-001-permissions.md) and [ADD-002](addenda/ADD-002-api-contract.md).
+**Version:** 1.0.3 — SRS 1.0.2 plus [ADD-003](addenda/ADD-003-last-enabled-administrator.md).
 
 ## 1. Purpose and scope
 
@@ -75,6 +75,7 @@ Each criterion is an observable condition for its requirement. Examples and edge
 | REQ-F-017 | An Administrator shall set a Client's loyalty tier manually to Standard, Silver, or Gold. | AC-F-017: An authorized change persists; order spend alone does not change the tier. |
 | REQ-F-018 | An Administrator shall correct any RepairOrder field, including on terminal orders, while preserving business constraints and the audit history. | AC-F-018: A valid correction persists and its actor, time, affected field, previous value, and new value are retrievable alongside prior audit entries. Corrections that violate required fields, relationships, uniqueness, pricing or lifecycle guards are rejected without changing the record; terminal states cannot be reopened. |
 | REQ-F-019 | An Administrator shall create, update, and disable individual staff accounts with an assigned role. | AC-F-019: The assigned role controls available actions; a disabled account cannot sign in. |
+| REQ-F-020 | The system shall preserve at least one enabled Administrator when staff accounts are updated if an enabled Administrator currently exists. | AC-F-020: An update that demotes or disables the last enabled Administrator returns `409 CONFLICT` and leaves the account, sessions, and audit history unchanged. Disabled Administrators do not count. Promoting an account to Administrator remains allowed when none are enabled. Concurrent updates cannot remove the final enabled Administrator. |
 
 ## 5. Nonfunctional requirements and acceptance criteria
 
@@ -258,6 +259,23 @@ Then the action succeeds and its required audit evidence identifies the Administ
 ```
 
 Administrator tests also repeat the negative approval, repair-check, payment, and pickup scenarios and cover corrections on terminal records.
+
+**BDD-021 — Keep one enabled Administrator** (`REQ-F-019`, `REQ-F-020`)
+
+```gherkin
+Scenario Outline: Do not remove the last enabled Administrator
+Given a signed-in Administrator who is the only enabled Administrator
+When the staff member <change> their own account
+Then the update returns 409 CONFLICT and the account, its sessions, and audit history remain unchanged
+
+Examples:
+  | change                 |
+  | disables               |
+  | demotes                |
+  | disables and demotes   |
+```
+
+When a database has no enabled Administrator, promoting an account to Administrator remains allowed so access can be restored.
 
 ## 7. Constraints and change control
 
