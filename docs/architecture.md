@@ -39,7 +39,7 @@ sequenceDiagram
     C->>H: HTTP + Bearer token
     H->>S: resolve session → Actor
     H->>U: call with Actor and parsed input
-    U->>U: actor.require(Action) — 403 before anything else
+    U->>U: authorize(actor, Action) — 403 before anything else
     U->>S: load records
     U->>D: apply rule → new state + Vec<FieldChange>
     U->>S: save(new state, expected version, audit) in one transaction
@@ -49,7 +49,7 @@ sequenceDiagram
 ```
 
 1. **Authenticate.** The `Actor` extractor reads `Authorization: Bearer <token>`, hashes it, and looks up an unexpired session of an enabled account. Missing or unknown token → `401 UNAUTHENTICATED`. Every protected handler takes `Actor`, so there is no unauthenticated path to records (REQ-F-001).
-2. **Authorize.** The first line of every use case is `actor.require(Action::…)?`. The role matrix is one function in `fixops-domain` (`Role::can`) and mirrors `x-roles` in the contract. Administrator gets every Receptionist and Technician action through that matrix, not through a bypass, so guards still apply (ADD-001).
+2. **Authorize.** The first line of every use case is `crate::authorize(actor, Action::…)?`, which wraps `Actor::require` and records the action in the log. The role matrix is one function in `fixops-domain` (`Role::can`) and mirrors `x-roles` in the contract. Administrator gets every Receptionist and Technician action through that matrix, not through a bypass, so guards still apply (ADD-001).
 3. **Validate.** DTOs only handle JSON shape: types, enums, unknown fields (`#[serde(deny_unknown_fields)]`). Business values are built through domain constructors (`ClientName::parse`, `Cents::new`, …) that return a domain error naming the field. The app layer maps it to `400 VALIDATION_ERROR`.
 4. **Apply the rule.** Domain methods take the current record and return the new one plus the list of `FieldChange`s, or a domain error. They never half-apply.
 5. **Persist with audit.** The store writes the record and its audit entries in one transaction. A rejected action never reaches the store, so it changes nothing.
@@ -72,6 +72,23 @@ Rules:
 - Store write methods take the audit changes as an argument and insert them in the same transaction. There is no way to write a record without passing its changes.
 - Passwords are never logged: a password change is audited as `field = "password"` with both values `NULL`.
 - Audit rows are append-only. No code updates or deletes them.
+
+## Logging
+
+Separate from the audit log. The audit log is the business record of data changes. The operational log records everything the service does, so each test run or manual run can be analysed afterwards. Implemented in `src/telemetry.rs` and `src/http/trace.rs`.
+
+| Line | Level | Written by | Fields |
+|---|---|---|---|
+| `request finished` | `INFO`, `WARN` for 4xx, `ERROR` for 5xx | HTTP layer, once per request | `status`, `latency_ms` |
+| `request rejected` | `WARN` (`ERROR` `request failed` for internal errors) | `ApiError` rendering | `code`, `reason`, `details` |
+| `action denied` | `WARN` | `fixops_app::authorize` | `actor_id`, `role`, `action` |
+| `record changed` | `INFO` | `insert_audit` in infra | `actor_id`, `record_type`, `record_id`, `fields` (names only) |
+
+Every line inside a request carries the `request` span: `request_id` (from `x-request-id`, generated when missing and echoed back), `method`, `path`, plus `actor_id`, `role` and `action` once they are known.
+
+- Output goes to the console and to a daily JSON-lines file, `$FIXOPS_LOG_DIR/fixops.log.YYYY-MM-DD` (default `var/log`). `RUST_LOG` sets the filter.
+- Never logged: passwords, password hashes, tokens, headers, query strings, and changed values (those stay in the audit log). `tests/logging.rs` enforces this.
+- New use cases need no extra logging code: `authorize` records the action, and `insert_audit` logs the change.
 
 ## Data and money
 
