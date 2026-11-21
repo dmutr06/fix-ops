@@ -4,7 +4,7 @@
     "version": "0.0.1",
     "type": "module",
     "scripts": {
-        "gen": "openapi-typescript ../spec/openapi.yaml -o src/lib/api.d.ts",
+        "gen": "openapi-typescript ../spec/openapi.yaml -o src/lib/schema.d.ts",
         "dev": "pnpm gen && vite",
         "build": "pnpm gen && tsc -b && vite build",
         "lint": "biome check .",

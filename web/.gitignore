@@ -24,6 +24,6 @@ dist-ssr
 *.sw?
 
 # Generated
-src/lib/api.d.ts
+src/lib/schema.d.ts
 test-results
 playwright-report
