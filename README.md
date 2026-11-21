@@ -1,19 +1,35 @@
 # FixOps
 
-Internal service for a PC and electronics repair workshop: clients, devices, repair orders, diagnosis, estimates, repair work, settlement and audit.
+Internal service for a PC and electronics repair workshop: clients, devices, repair orders, diagnosis, estimates, repair work, settlement and audit. It is a JSON HTTP API for staff; there is no web frontend yet.
 
-- Requirements: [`spec/srs.md`](spec/srs.md), API contract: [`spec/openapi.yaml`](spec/openapi.yaml)
-- How it's built: [`docs/architecture.md`](docs/architecture.md), [`docs/stack.md`](docs/stack.md)
-- How we work: [`docs/workflow.md`](docs/workflow.md), [`docs/branching_strategy.md`](docs/branching_strategy.md)
+| Read | For |
+|---|---|
+| [User guide](docs/user_guide.md) | Staff tasks, order lifecycle, pricing, errors |
+| [`spec/srs.md`](spec/srs.md), [`spec/openapi.yaml`](spec/openapi.yaml) | Requirements and API contract |
+| [Architecture](docs/architecture.md), [stack](docs/stack.md) | How it is built, coding convention |
+| [Recovery](docs/recovery.md) | Backup and restore |
+| [Workflow](docs/workflow.md), [branching](docs/branching_strategy.md) | How we work |
+
+## Requirements
+
+- Rust 1.90 or newer
+- Docker with Compose (PostgreSQL 18)
+- `curl` and `jq` for the examples
 
 ## Run
 
 ```bash
 docker compose up -d --wait
-cargo run
+FIXOPS_BOOTSTRAP_ADMIN_USERNAME=admin FIXOPS_BOOTSTRAP_ADMIN_PASSWORD='change-me-now' cargo run
 ```
 
-The API listens on `http://127.0.0.1:8080/api/v1`. Migrations run at startup.
+Migrations run at startup. The bootstrap variables create the first Administrator only while no staff account exists; later starts can omit them. The API listens on `http://127.0.0.1:8080/api/v1`:
+
+```bash
+curl -s http://127.0.0.1:8080/health   # ok
+curl -s http://127.0.0.1:8080/api/v1/sessions -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"change-me-now"}' | jq .
+```
 
 ## Test
 
@@ -23,7 +39,13 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-HTTP tests create a throwaway database per test on the Compose Postgres.
+HTTP tests create a throwaway database per test on the Compose Postgres. The Prism suite (`cargo test --test prism`) needs a mock server; see `tests/prism/mod.rs`.
+
+## API reference
+
+```bash
+cargo doc --workspace --no-deps --open
+```
 
 ## Configuration
 
