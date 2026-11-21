@@ -50,8 +50,8 @@ fn every_operation_traces_to_requirements() {
         }
     }
 
-    assert_eq!(ids.len(), 26);
-    for n in 1..=19 {
+    assert_eq!(ids.len(), 28);
+    for n in (1..=19).chain(22..=23) {
         assert!(
             reqs.contains(format!("REQ-F-{n:03}").as_str()),
             "REQ-F-{n:03} not covered"

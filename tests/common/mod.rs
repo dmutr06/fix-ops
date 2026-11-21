@@ -8,7 +8,7 @@
 
 use axum::Router;
 use axum::body::Body;
-use axum::http::{Method, Request, StatusCode, header};
+use axum::http::{HeaderMap, Method, Request, StatusCode, header};
 use fixops::{AppState, router};
 use fixops_app::App;
 use fixops_domain::staff::{Password, Username};
@@ -134,6 +134,15 @@ impl TestRequest<'_> {
         self
     }
 
+    /// Sends `Cookie: fixops_session=<token>`, as the browser does after sign-in.
+    #[must_use]
+    pub fn cookie(mut self, token: &str) -> Self {
+        self.builder = self
+            .builder
+            .header(header::COOKIE, format!("fixops_session={token}"));
+        self
+    }
+
     /// Sends an arbitrary header, for malformed-credential tests.
     #[must_use]
     pub fn header(mut self, name: &str, value: &str) -> Self {
@@ -170,6 +179,7 @@ impl TestRequest<'_> {
             .await
             .expect("infallible");
         let status = response.status();
+        let headers = response.headers().clone();
         let bytes = response
             .into_body()
             .collect()
@@ -182,13 +192,18 @@ impl TestRequest<'_> {
             serde_json::from_slice(&bytes)
                 .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
         };
-        TestResponse { status, body }
+        TestResponse {
+            status,
+            headers,
+            body,
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct TestResponse {
     pub status: StatusCode,
+    pub headers: HeaderMap,
     pub body: Value,
 }
 

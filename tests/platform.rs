@@ -47,5 +47,5 @@ async fn every_contract_operation_is_routed(pool: PgPool) {
             );
         }
     }
-    assert_eq!(operations, 26);
+    assert_eq!(operations, 28);
 }

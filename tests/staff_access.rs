@@ -540,8 +540,9 @@ async fn another_enabled_administrator_allows_demotion(pool: PgPool) {
             .await
             .unwrap();
     assert_eq!(row, ("Receptionist".to_owned(), true));
-    app.get("/api/v1/staff")
+    app.post("/api/v1/staff")
         .token(&admin)
+        .json(&json!({ "username": "after.demotion", "password": PASSWORD, "role": "Technician" }))
         .send()
         .await
         .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
@@ -771,11 +772,6 @@ async fn receptionist_and_technician_cannot_manage_staff(pool: PgPool) {
     let audit_before = audit_log(&app, &admin, "").await;
 
     for token in [&recep, &tech] {
-        app.get("/api/v1/staff")
-            .token(token)
-            .send()
-            .await
-            .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
         app.post("/api/v1/staff")
             .token(token)
             .json(&json!({ "username": "sneaky", "password": PASSWORD, "role": "Administrator" }))

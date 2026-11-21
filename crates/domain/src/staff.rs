@@ -347,7 +347,6 @@ mod tests {
     #[test]
     fn only_administrator_manages_staff_tiers_and_corrections() {
         for action in [
-            Action::ListStaffAccounts,
             Action::CreateStaffAccount,
             Action::UpdateStaffAccount,
             Action::SetClientLoyaltyTier,
@@ -369,6 +368,9 @@ mod tests {
             Action::ListRepairOrders,
             Action::GetRepairOrder,
             Action::ListAuditLogs,
+            Action::ListStaffAccounts,
+            Action::GetCurrentSession,
+            Action::DeleteSession,
         ] {
             for role in Role::ALL {
                 assert!(role.can(action), "{role} {action:?}");

@@ -100,7 +100,7 @@ fn slug(heading: &str) -> String {
 #[test]
 fn every_requirement_has_one_row_in_each_table() {
     let required: BTreeSet<_> = srs_requirements(&read(SRS)).into_iter().collect();
-    assert_eq!(required.len(), 24);
+    assert_eq!(required.len(), 27);
     let matrix = read(MATRIX);
     for header in ["| Requirement | AC |", "| Requirement | Tests |"] {
         let rows: BTreeSet<_> = table(&matrix, header).into_keys().collect();
@@ -137,7 +137,7 @@ fn acceptance_criteria_and_addenda_exist() {
 #[test]
 fn scenario_links_match_the_srs() {
     let scenarios = srs_scenarios(&read(SRS));
-    assert_eq!(scenarios.len(), 21);
+    assert_eq!(scenarios.len(), 25);
     let mut expected: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
     for (bdd, reqs) in &scenarios {
         for req in reqs {
@@ -177,7 +177,9 @@ fn every_contract_operation_is_traced() {
         .collect();
     let mut traced = BTreeSet::new();
     for (req, cells) in table(&read(MATRIX), "| Requirement | AC |") {
-        for name in backticked(&cells[2]).filter(|n| !["bearerAuth", "x-roles"].contains(n)) {
+        for name in
+            backticked(&cells[2]).filter(|n| !["bearerAuth", "cookieAuth", "x-roles"].contains(n))
+        {
             assert!(operations.contains(name), "{req}: unknown operation {name}");
             traced.insert(name.to_owned());
         }
