@@ -1,6 +1,6 @@
 # FixOps
 
-Internal service for a PC and electronics repair workshop: clients, devices, repair orders, diagnosis, estimates, repair work, settlement and audit. It is a JSON HTTP API for staff; there is no web frontend yet.
+Internal service for a PC and electronics repair workshop: clients, devices, repair orders, diagnosis, estimates, repair work, settlement and audit. Staff use it in the browser; the same JSON API serves scripts.
 
 | Read | For |
 |---|---|
@@ -13,6 +13,7 @@ Internal service for a PC and electronics repair workshop: clients, devices, rep
 ## Requirements
 
 - Rust 1.90 or newer
+- Node.js 24 and pnpm 12 for the web app
 - Docker with Compose (PostgreSQL 18)
 - `curl` and `jq` for the examples
 
@@ -20,10 +21,13 @@ Internal service for a PC and electronics repair workshop: clients, devices, rep
 
 ```bash
 docker compose up -d --wait
+(cd web && pnpm install && pnpm build)
 FIXOPS_BOOTSTRAP_ADMIN_USERNAME=admin FIXOPS_BOOTSTRAP_ADMIN_PASSWORD='change-me-now' cargo run
 ```
 
-Migrations run at startup. The bootstrap variables create the first Administrator only while no staff account exists; later starts can omit them. The API listens on `http://127.0.0.1:8080/api/v1`:
+Open `http://127.0.0.1:8080` and sign in as `admin`. Migrations run at startup. The bootstrap variables create the first Administrator only while no staff account exists; later starts can omit them. Debug builds read `web/dist` from disk; release builds embed it, so build the web app first. For live reload, run `pnpm dev` in `web/` next to `cargo run`.
+
+The API listens on `http://127.0.0.1:8080/api/v1`:
 
 ```bash
 curl -s http://127.0.0.1:8080/health   # ok
@@ -39,7 +43,16 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
 
-HTTP tests create a throwaway database per test on the Compose Postgres. The Prism suite (`cargo test --test prism`) needs a mock server; see `tests/prism/mod.rs`.
+HTTP tests create a throwaway database per test on the Compose Postgres. The web app:
+
+```bash
+cd web
+pnpm lint && pnpm typecheck
+pnpm exec playwright install chromium   # once
+pnpm e2e   # builds the app and runs the service on a fresh fixops_e2e database
+```
+
+The Prism suite (`cargo test --test prism`) needs a mock server; see `tests/prism/mod.rs`.
 
 ## API reference
 

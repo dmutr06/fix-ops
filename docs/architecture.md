@@ -25,7 +25,8 @@ flowchart TD
 | `fixops-domain` (`crates/domain`) | Typed ids, `Role`, `Action`, value types (`Cents`, names, phones), `RepairOrder` state machine, pricing, `FieldChange` | Do I/O, use async, depend on serde, sqlx or axum |
 | `fixops-app` (`crates/app`) | One module per area (`staff`, `clients`, `orders`, …). Each has a store trait (port) and `impl<S: XStore> App<S>` with its use cases. `AppError`. | Know about HTTP status codes or SQL |
 | `fixops-infra` (`crates/infra`) | `PgStore` implementing every port, SQL, migrations, argon2 | Contain business rules |
-| `fixops` (root, `src/`) | axum router, request/response DTOs (serde), `Actor` extractor, `ApiError` → `ErrorResponse` | Contain business rules or SQL |
+| `fixops` (root, `src/`) | axum router, request/response DTOs (serde), `Actor` extractor, `ApiError` → `ErrorResponse`, the embedded web app | Contain business rules or SQL |
+| `web/` | The staff web app; calls only the public API | Decide a rule; it shows the service's answer |
 
 ## Request flow
 
@@ -49,7 +50,7 @@ sequenceDiagram
     H-->>C: JSON or ErrorResponse
 ```
 
-1. **Authenticate.** The `Actor` extractor reads `Authorization: Bearer <token>`, hashes it, and looks up an unexpired session of an enabled account. Missing or unknown token → `401 UNAUTHENTICATED`. Every protected handler takes `Actor`, so there is no unauthenticated path to records (REQ-F-001).
+1. **Authenticate.** The `Actor` extractor reads `Authorization: Bearer <token>`, or else the `fixops_session` cookie, hashes it, and looks up an unexpired session of an enabled account. Missing or unknown token → `401 UNAUTHENTICATED`. Every protected handler takes `Actor`, so there is no unauthenticated path to records (REQ-F-001).
 2. **Authorize.** A handler that takes path parameters or a body extracts them as `Result<PathId, ApiError>` and `Result<Json<T>, ApiError>`, calls `state.app.authorize(actor, Action::…)?` first, and only then unwraps them and builds domain values. The order of answers is therefore always `401` → `403` → `400` → `404`/`409`, so a denied role never learns the validation rules (ADD-002 §2). As defense in depth, the first line of every use case is `crate::authorize(actor, Action::…)?`, which wraps `Actor::require` and records the action in the log. The role matrix is one function in `fixops-domain` (`Role::can`) and mirrors `x-roles` in the contract. Administrator gets every Receptionist and Technician action through that matrix, not through a bypass, so guards still apply (ADD-001).
 3. **Validate.** DTOs only handle JSON shape: types, enums, unknown fields (`#[serde(deny_unknown_fields)]`), and `null` in optional fields the contract does not mark `nullable` (`#[serde(default, deserialize_with = "json::not_null")]`). Business values are built through domain constructors (`ClientName::parse`, `Cents::new`, …) that return a domain error naming the field. The app layer maps it to `400 VALIDATION_ERROR`.
 4. **Apply the rule.** Domain methods take the current record and return the new one plus the list of `FieldChange`s, or a domain error. They never half-apply.
@@ -99,6 +100,7 @@ Every line inside a request carries the `request` span: `request_id` (from `x-re
 - Enums are stored as `text` with a `CHECK` constraint listing the allowed values.
 - Uniqueness (ticket number, username) is a database `UNIQUE` constraint. The store maps the violation to `StoreError::Duplicate`, and the use case turns it into `409 CONFLICT`.
 - Searches (`q` on clients and devices) are case-insensitive substring matches: `ILIKE` with `%`, `_` and `\` escaped, served by `pg_trgm` GIN indexes. Exact filters (`client_id`, `status`, `ticket_number`) use B-tree indexes.
+- Lists are in id order. `limit` and `offset` become `LIMIT`/`OFFSET`, and a separate `COUNT(*)` with the same filters gives `X-Total-Count` (REQ-F-023).
 
 ### Intake
 
@@ -125,7 +127,8 @@ Staff updates lock the account row and compare its role and enabled state with t
 
 ## Sessions
 
-- `POST /api/v1/sessions` checks the password with argon2 and issues 32 random bytes, base64url-encoded. Only the SHA-256 hash is stored, with a 12-hour expiry.
+- `POST /api/v1/sessions` checks the password with argon2 and issues 32 random bytes, base64url-encoded. Only the SHA-256 hash is stored, with a 12-hour expiry. The same token is set as the `fixops_session` cookie (`HttpOnly; Secure; SameSite=Strict`) for the web app, which never handles the token itself (ADD-004).
+- `DELETE /api/v1/sessions/current` deletes the stored session and clears the cookie.
 - An unknown username and a wrong password get the same `401` after the same argon2 work: without an account the hasher checks a dummy hash with the same parameters, so the response time does not reveal the username either. A disabled account gets `403` only after its password matched, so neither answer reveals which accounts exist.
 - Password hashing is a port (`PasswordHasher`) like the stores, and `PgStore` implements it with argon2 on the blocking thread pool. The HTTP layer still holds one `App<PgStore>`.
 - Disabling an account deletes its sessions in the same transaction, so access ends at once (REQ-F-019). A role change applies from the next request, because every request reads the account's current role.
@@ -154,6 +157,8 @@ crates/infra/src/    lib.rs (PgStore), error.rs, staff.rs, clients.rs, …
 crates/infra/migrations/   <timestamp>_<name>.sql
 src/http/            mod.rs (router), error.rs, json.rs, params.rs, auth.rs, sessions.rs, staff.rs, audit.rs, clients.rs, …
 tests/               one HTTP test file per area (staff_access.rs, intake.rs, …), common/ harness
+web/src/             lib/ (API client, session, formatting), components/, pages/ (one per screen)
+web/e2e/             Playwright browser tests
 ```
 
 Each area keeps the same file name in every layer, so one package of work touches its own files and parallel work rarely conflicts.
@@ -168,12 +173,13 @@ Work is test-first. Tests come from the SRS acceptance criteria and BDD scenario
 | Use case unit | `#[cfg(test)]` in `crates/app` (optional, with fakes) | Permission checks and orchestration that HTTP tests can't isolate |
 | HTTP | `tests/*.rs` with `#[sqlx::test(migrator = "fixops_infra::MIGRATOR")]` | Every BDD scenario and every role's allowed and denied action, through the real router and a fresh database |
 | Contract | `tests/contract.rs`, `tests/prism` | The OpenAPI document itself |
+| Browser | `web/e2e` (Playwright) | BDD-022, BDD-023 and BDD-025 through the web app on desktop and phone, each step within 2 s |
 
 HTTP tests name their scenario (`bdd_005_cancel_before_diagnosis_charges_nothing`). A denied action is tested by reading the record back and checking that it, and the audit log, did not change.
 
 ## Operations
 
-- **Run locally:** `docker compose up -d --wait`, then `cargo run`. Migrations run at startup.
+- **Run locally:** `docker compose up -d --wait`, `pnpm build` in `web/`, then `cargo run`. Migrations run at startup.
 - **Configuration:** environment variables, listed in the README.
 - **Backups (REQ-NF-004):** a daily `pg_dump` and a timed restore; see [recovery](recovery.md).
 - **API reference:** `cargo doc --workspace --no-deps --open`.

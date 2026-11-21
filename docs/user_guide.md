@@ -1,8 +1,22 @@
 # User guide
 
-For workshop staff using the FixOps API. Terms follow the [glossary](../spec/glossary.md); every request and field is in [`openapi.yaml`](../spec/openapi.yaml). A complete scripted run of these steps is in the [validation walkthrough](validation.md).
+For workshop staff. Terms follow the [glossary](../spec/glossary.md). Daily work happens in the [web app](#web-app); the sections after it describe the same steps through the API, whose requests and fields are in [`openapi.yaml`](../spec/openapi.yaml).
 
-## Sign in
+## Web app
+
+Open `http://127.0.0.1:8080` on a computer, tablet or phone and sign in. **Sign out** ends the session at once.
+
+| Page | Who | What |
+|---|---|---|
+| Queue | everyone | Your next work. Receptionist: orders *awaiting client decision* and *ready for payment and pickup*. Technician: *my open orders*. Administrator: all *open orders*. |
+| Orders | everyone | Every order, by status or ticket number. |
+| Clients | everyone | Find a client. Receptionists add a client (**New client**), then on the client's page **Add device** and **New order** for that device with a ticket number and a Technician. |
+| Order | everyone | Details, the **Actions** your role may take at this step, and the **History**. Amounts are entered in dollars, such as `12.50`. |
+| Staff | Administrator | **New staff account**, change a role, **Disable** or **Enable**. |
+
+On an order, the Technician uses **Start diagnosis**, **Save findings**, **Save estimate**, **Start repair** and **Mark ready**; the Receptionist uses **Approve** or **Decline**, **Record payment**, **Record pickup**, **Complete** and **Cancel order**. An Administrator sees all of them, plus **Correct** on the order and the loyalty tier on the client's page. A blocked step shows the reason, for example a missing repair check, and changes nothing.
+
+## Sign in (API)
 
 ```bash
 API=http://127.0.0.1:8080/api/v1
@@ -11,7 +25,7 @@ TOKEN=$(curl -s "$API/sessions" -H 'Content-Type: application/json' \
 curl -s "$API/orders?status=Ready" -H "Authorization: Bearer $TOKEN"
 ```
 
-A session lasts 12 hours. Send the token as `Authorization: Bearer` on every other request. Amounts are whole cents: `12550` is $125.50.
+A session lasts 12 hours. Send the token as `Authorization: Bearer` on every other request; `DELETE /sessions/current` signs out. Lists take `limit` (up to 100) and `offset` and return the total in `X-Total-Count`. Amounts are whole cents: `12550` is $125.50.
 
 ## Who does what
 
@@ -25,7 +39,8 @@ A session lasts 12 hours. Send the token as `Authorization: Bearer` on every oth
 | Repair: charges, repair check, `Ready` | `PUT /orders/{id}/repair` | | ✓ | ✓ |
 | Payment, pickup, complete, cancel | `PUT /orders/{id}/payment`, `PUT /orders/{id}/pickup`, `POST /orders/{id}/complete`, `POST /orders/{id}/cancel` | ✓ | | ✓ |
 | Loyalty tier | `PUT /clients/{id}/loyalty-tier` | | | ✓ |
-| Staff accounts | `GET /staff`, `POST /staff`, `PATCH /staff/{id}` | | | ✓ |
+| Staff list, for example Technicians to assign | `GET /staff?role=Technician&enabled=true` | ✓ | ✓ | ✓ |
+| Staff accounts | `POST /staff`, `PATCH /staff/{id}` | | | ✓ |
 | Correct any order field; lifecycle, payment and pricing rules still apply | `PATCH /orders/{id}` | | | ✓ |
 
 ## A repair, step by step
