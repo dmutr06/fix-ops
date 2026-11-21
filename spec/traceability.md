@@ -4,8 +4,8 @@ IDs refer to [`srs.md`](srs.md) and [`openapi.yaml`](openapi.yaml). Packages and
 
 | Requirement | AC | BDD | API Operations (`openapi.yaml`) | Package | Tickets | Addendum |
 |---|---|---|---|---|---|---|
-| REQ-F-001 | AC-F-001 | 017 | `createSession`; `bearerAuth` on all 25 protected operations | P1 | FIX-27, 28, 29 | ADD-002 |
-| REQ-F-002 | AC-F-002 | 011, 018, 019, 020 | `x-roles` guards on all 25 protected operations | P1 | FIX-27, 28, 29 | ADD-001, ADD-002 |
+| REQ-F-001 | AC-F-001 | 017, 022 | `createSession`, `getCurrentSession`, `deleteSession`; `bearerAuth` on all 27 protected operations | P1, P8 | FIX-27, 28, 29, 62 | ADD-002, ADD-004 |
+| REQ-F-002 | AC-F-002 | 011, 018, 019, 020, 024 | `x-roles` guards on all 27 protected operations | P1, P8 | FIX-27, 28, 29, 62 | ADD-001, ADD-002, ADD-004 |
 | REQ-F-003 | AC-F-003 | 001, 002 | `listClients`, `createClient`, `getClient`, `updateClient` | P2 | FIX-30, 31, 32 | ADD-002 |
 | REQ-F-004 | AC-F-004 | 001, 002 | `listDevices`, `createDevice`, `getDevice`, `updateDevice` | P2 | FIX-30, 31, 32 | ADD-002 |
 | REQ-F-005 | AC-F-005 | 001, 002 | `listRepairOrders`, `createRepairOrder`, `getRepairOrder` | P2 | FIX-30, 31, 32 | ADD-002 |
@@ -24,8 +24,11 @@ IDs refer to [`srs.md`](srs.md) and [`openapi.yaml`](openapi.yaml). Packages and
 | REQ-F-018 | AC-F-018 | 016 | `correctRepairOrder`, `listAuditLogs` | P6 | FIX-42, 43, 44 | ADD-001, ADD-002 |
 | REQ-F-019 | AC-F-019 | 021 | `createSession`, `listStaffAccounts`, `createStaffAccount`, `updateStaffAccount` | P1 | FIX-27, 28, 29 | ADD-002 |
 | REQ-F-020 | AC-F-020 | 021 | `updateStaffAccount` | ADD-003 | FIX-54 | ADD-003 |
-| REQ-NF-001 | AC-NF-001 | — | `listClients`, `getClient`, `listDevices`, `getDevice`, `listRepairOrders`, `createRepairOrder`, `getRepairOrder` (2s latency SLA across routine actions) | P7 | FIX-45, 46, 47 | ADD-002 |
-| REQ-NF-002 | AC-NF-002 | 011, 018, 019, 020 | `createSession`; `bearerAuth` and `x-roles` on all 25 protected operations | P1 | FIX-27, 28, 29 | ADD-001, ADD-002 |
+| REQ-F-021 | AC-F-021 | 025 | all operations, through the browser interface | P9 | FIX-63 | ADD-004 |
+| REQ-F-022 | AC-F-022 | 022 | `createSession`, `getCurrentSession`, `deleteSession`; `cookieAuth` | P8 | FIX-62 | ADD-004 |
+| REQ-F-023 | AC-F-023 | 023 | `listRepairOrders`, `listClients`, `listDevices`, `listStaffAccounts`, `listAuditLogs` | P8, P9 | FIX-62, 63 | ADD-004 |
+| REQ-NF-001 | AC-NF-001 | 025 | `listClients`, `getClient`, `listDevices`, `getDevice`, `listRepairOrders`, `createRepairOrder`, `getRepairOrder` (2s latency SLA across routine actions) | P7, P9 | FIX-45, 46, 47, 63 | ADD-002, ADD-004 |
+| REQ-NF-002 | AC-NF-002 | 011, 018, 019, 020, 024 | `createSession`; `bearerAuth` and `x-roles` on all 27 protected operations | P1, P8 | FIX-27, 28, 29, 62 | ADD-001, ADD-002, ADD-004 |
 | REQ-NF-003 | AC-NF-003 | 016 | `listAuditLogs`; audit trail on all 17 state-changing operations | P1, P6 | FIX-27, 28, 29, 42, 43, 44 | ADD-001, ADD-002 |
 | REQ-NF-004 | AC-NF-004 | — | — (daily database backup and restore; infrastructure operation) | P7 | FIX-45, 46, 47 | |
 

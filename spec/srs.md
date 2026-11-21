@@ -1,6 +1,6 @@
 # Software Requirements Specification: FixOps
 
-**Version:** 1.0.3 — SRS 1.0.2 plus [ADD-003](addenda/ADD-003-last-enabled-administrator.md).
+**Version:** 1.1.0 — SRS 1.0.3 plus [ADD-004](addenda/ADD-004-web-interface.md).
 
 ## 1. Purpose and scope
 
@@ -14,8 +14,8 @@ Only staff use the internal web interface. Each staff member has an individual a
 
 | Role | Authorized responsibilities |
 |---|---|
-| Receptionist | Maintain clients and devices; receive orders; record client decisions, payments, and pickup; cancel orders where the lifecycle permits it. |
-| Technician | Diagnose devices; prepare estimates; record parts, labor, and repair checks. |
+| Receptionist | Maintain clients and devices; receive orders; record client decisions, payments, and pickup; cancel orders where the lifecycle permits it; read the staff list. |
+| Technician | Diagnose devices; prepare estimates; record parts, labor, and repair checks; read the staff list. |
 | Administrator | Perform all Receptionist and Technician actions; manage staff accounts and loyalty tiers; correct any RepairOrder field while preserving business rules and audit history. |
 
 Administrator is not a bypass: every role is subject to the same business rules, validation, and audit. The interface has no external integrations. Record fields and terms are defined in [`glossary.md`](glossary.md).
@@ -76,6 +76,9 @@ Each criterion is an observable condition for its requirement. Examples and edge
 | REQ-F-018 | An Administrator shall correct any RepairOrder field, including on terminal orders, while preserving business constraints and the audit history. | AC-F-018: A valid correction persists and its actor, time, affected field, previous value, and new value are retrievable alongside prior audit entries. Corrections that violate required fields, relationships, uniqueness, pricing or lifecycle guards are rejected without changing the record; terminal states cannot be reopened. |
 | REQ-F-019 | An Administrator shall create, update, and disable individual staff accounts with an assigned role. | AC-F-019: The assigned role controls available actions; a disabled account cannot sign in. |
 | REQ-F-020 | The system shall preserve at least one enabled Administrator when staff accounts are updated if an enabled Administrator currently exists. | AC-F-020: An update that demotes or disables the last enabled Administrator returns `409 CONFLICT` and leaves the account, sessions, and audit history unchanged. Disabled Administrators do not count. Promoting an account to Administrator remains allowed when none are enabled. Concurrent updates cannot remove the final enabled Administrator. |
+| REQ-F-021 | The system shall provide a browser interface in which staff perform every action of §2 permitted to their role. | AC-F-021: Each role can complete its §2 actions in the browser; actions the role may not take are not offered; a rejected step shows the service's message and changes nothing. |
+| REQ-F-022 | The browser interface shall keep the staff session in a cookie that scripts cannot read, and staff shall be able to sign out. | AC-F-022: Sign-in sets an `HttpOnly`, `Secure`, `SameSite=Strict` session cookie that authenticates later requests; sign-out ends the session, after which requests return `401`. |
+| REQ-F-023 | The system shall show each role a work queue and page through long lists. | AC-F-023: After sign-in the Receptionist sees orders awaiting a client decision and `Ready` orders, the Technician sees their open assigned orders, and the Administrator sees all open orders; lists return at most the requested page and the total count. |
 
 ## 5. Nonfunctional requirements and acceptance criteria
 
@@ -276,6 +279,43 @@ Examples:
 ```
 
 When a database has no enabled Administrator, promoting an account to Administrator remains allowed so access can be restored.
+
+**BDD-022 — Browser session** (`REQ-F-001`, `REQ-F-022`)
+
+```gherkin
+Given an enabled staff account
+When the staff member signs in from the browser
+Then an HttpOnly session cookie authenticates their requests
+And after they sign out, the same cookie returns 401 UNAUTHENTICATED
+```
+
+**BDD-023 — Work queues** (`REQ-F-023`)
+
+```gherkin
+Given open orders assigned to two Technicians, one awaiting a client decision and one Ready
+When each role opens its work queue
+Then the Receptionist sees the order awaiting a decision and the Ready order
+And each Technician sees only their own open orders
+And the Administrator sees every open order, one page at a time with the total count
+```
+
+**BDD-024 — Choose a Technician at intake** (`REQ-F-002`, `REQ-NF-002`)
+
+```gherkin
+Given a signed-in Receptionist
+When the Receptionist lists enabled Technicians
+Then the list shows their names and ids
+And creating or changing a staff account still returns 403 FORBIDDEN
+```
+
+**BDD-025 — Repair in the browser** (`REQ-F-021`, `REQ-NF-001`)
+
+```gherkin
+Given a Receptionist, a Technician and an Administrator signed in to the browser interface
+When they take a new order from intake to Completed using only the interface
+Then each step shows its result within 2 seconds
+And a step blocked by a guard shows the reason and leaves the order unchanged
+```
 
 ## 7. Constraints and change control
 
