@@ -26,7 +26,7 @@ A session lasts 12 hours. Send the token as `Authorization: Bearer` on every oth
 | Payment, pickup, complete, cancel | `PUT /orders/{id}/payment`, `PUT /orders/{id}/pickup`, `POST /orders/{id}/complete`, `POST /orders/{id}/cancel` | ✓ | | ✓ |
 | Loyalty tier | `PUT /clients/{id}/loyalty-tier` | | | ✓ |
 | Staff accounts | `GET /staff`, `POST /staff`, `PATCH /staff/{id}` | | | ✓ |
-| Correct any order field | `PATCH /orders/{id}` | | | ✓ |
+| Correct any order field; lifecycle, payment and pricing rules still apply | `PATCH /orders/{id}` | | | ✓ |
 
 ## A repair, step by step
 
@@ -52,11 +52,11 @@ The device must belong to the client, and the assignee must be a Technician. Fin
 
 ## Errors
 
-Every error has a `code`, a `message`, and `details` naming the field or rule.
+Every error has a `code` and a `message`; most also have `details` naming the field or rule.
 
 | Status, `code` | Meaning | What to do |
 |---|---|---|
-| `400 VALIDATION_ERROR` | A field is missing or invalid (`details.field`) | Fix the field |
+| `400 VALIDATION_ERROR` | A field is missing, unknown or invalid; the message or `details.field` names it | Fix the field |
 | `401 UNAUTHENTICATED` | No token, or it expired | Sign in again |
 | `403 FORBIDDEN` | Your role may not do this, or the account is disabled | Ask a colleague with the role |
 | `404 NOT_FOUND` | The record or a linked record does not exist | Check the id |
