@@ -5,7 +5,7 @@ use fixops_domain::client::{Client, ClientPatch, LoyaltyTier, NewClient};
 use fixops_domain::id::{ClientId, StaffId};
 use fixops_domain::staff::{Action, Actor};
 
-use crate::{App, AppError, AppResult, StoreError};
+use crate::{App, AppError, AppResult, Page, Paged, StoreError};
 
 /// Port: storage of clients.
 pub trait ClientStore: Send + Sync {
@@ -30,11 +30,12 @@ pub trait ClientStore: Send + Sync {
     ) -> impl Future<Output = Result<Option<(Client, i64)>, StoreError>> + Send;
 
     /// Clients whose name or phone contains `text`, ignoring case; all clients without `text`.
-    /// Ordered by id.
+    /// One `page` in id order.
     fn search_clients(
         &self,
         text: Option<&str>,
-    ) -> impl Future<Output = Result<Vec<Client>, StoreError>> + Send;
+        page: Page,
+    ) -> impl Future<Output = Result<Paged<Client>, StoreError>> + Send;
 
     /// Saves every field of `client` with its audit `changes` in one transaction, only while
     /// the stored version still equals `version`, and increments it. When the client was saved
@@ -65,9 +66,14 @@ impl<S: ClientStore> App<S> {
     }
 
     /// All clients, or those whose name or phone contains `text` in any letter case.
-    pub async fn list_clients(&self, actor: Actor, text: Option<&str>) -> AppResult<Vec<Client>> {
+    pub async fn list_clients(
+        &self,
+        actor: Actor,
+        text: Option<&str>,
+        page: Page,
+    ) -> AppResult<Paged<Client>> {
         crate::authorize(actor, Action::ListClients)?;
-        Ok(self.store.search_clients(text).await?)
+        Ok(self.store.search_clients(text, page).await?)
     }
 
     /// Applies `patch` to a client (`updateClient`). Only changed fields are saved and audited.

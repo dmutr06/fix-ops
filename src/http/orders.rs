@@ -4,8 +4,8 @@ use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post, put};
-use fixops_app::AppError;
 use fixops_app::orders::{OrderFilter, OrderIntake, OrderView};
+use fixops_app::{AppError, Page};
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::money::Cents;
 use fixops_domain::order::{
@@ -18,7 +18,7 @@ use time::OffsetDateTime;
 
 use super::auth::SignedIn;
 use super::json::Json;
-use super::params::{PathId, Query, non_empty, positive_id, record_id};
+use super::params::{Listed, PathId, Query, non_empty, page, positive_id, record_id};
 use super::{ApiError, AppState};
 
 pub fn routes() -> Router<AppState> {
@@ -124,15 +124,28 @@ struct OrderQuery {
     status: Option<String>,
     client_id: Option<i64>,
     ticket_number: Option<String>,
+    assigned_technician_id: Option<i64>,
+    open: Option<bool>,
+    awaiting_decision: Option<bool>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 impl OrderQuery {
-    fn into_filter(self) -> Result<OrderFilter, AppError> {
-        Ok(OrderFilter {
+    fn into_filter(self) -> Result<(OrderFilter, Page), AppError> {
+        let filter = OrderFilter {
             status: self.status.as_deref().map(OrderStatus::parse).transpose()?,
             client_id: positive_id("client_id", self.client_id)?.map(ClientId),
             ticket_number: non_empty("ticket_number", self.ticket_number)?,
-        })
+            assigned_technician_id: positive_id(
+                "assigned_technician_id",
+                self.assigned_technician_id,
+            )?
+            .map(StaffId),
+            open: self.open.unwrap_or(false),
+            awaiting_decision: self.awaiting_decision.unwrap_or(false),
+        };
+        Ok((filter, page(self.limit, self.offset)?))
     }
 }
 
@@ -163,11 +176,12 @@ async fn list(
     State(state): State<AppState>,
     SignedIn(actor): SignedIn,
     query: Result<Query<OrderQuery>, ApiError>,
-) -> Result<Json<Vec<RepairOrderDto>>, ApiError> {
+) -> Result<Listed<RepairOrderDto>, ApiError> {
     state.app.authorize(actor, Action::ListRepairOrders)?;
     let Query(query) = query?;
-    let orders = state.app.list_orders(actor, query.into_filter()?).await?;
-    Ok(Json(orders.into_iter().map(Into::into).collect()))
+    let (filter, page) = query.into_filter()?;
+    let orders = state.app.list_orders(actor, filter, page).await?;
+    Ok(Listed(orders.map(Into::into)))
 }
 
 async fn create(

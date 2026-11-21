@@ -49,6 +49,31 @@ impl<S> App<S> {
 /// Result of a use case.
 pub type AppResult<T> = Result<T, AppError>;
 
+/// Which part of a list to return, in id order: at most `limit` matches (every match when
+/// `None`) after skipping `offset` (REQ-F-023).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Page {
+    pub limit: Option<i64>,
+    pub offset: i64,
+}
+
+/// One page of matches and the number of matches before paging.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Paged<T> {
+    pub items: Vec<T>,
+    pub total: i64,
+}
+
+impl<T> Paged<T> {
+    /// Converts every item, keeping the total.
+    pub fn map<U>(self, f: impl FnMut(T) -> U) -> Paged<U> {
+        Paged {
+            items: self.items.into_iter().map(f).collect(),
+            total: self.total,
+        }
+    }
+}
+
 /// Checks that `actor` may perform `action`, and records the action on the current request for
 /// the operational log. A denial is logged as `action denied` and returned as `403`.
 pub(crate) fn authorize(

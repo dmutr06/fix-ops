@@ -84,11 +84,13 @@ pub enum Action {
     CompleteRepairOrder,
     CancelRepairOrder,
     ListAuditLogs,
+    GetCurrentSession,
+    DeleteSession,
 }
 
 impl Action {
     /// Every protected operation; tests check it against the contract.
-    pub const ALL: [Self; 25] = [
+    pub const ALL: [Self; 27] = [
         Self::ListStaffAccounts,
         Self::CreateStaffAccount,
         Self::UpdateStaffAccount,
@@ -114,6 +116,8 @@ impl Action {
         Self::CompleteRepairOrder,
         Self::CancelRepairOrder,
         Self::ListAuditLogs,
+        Self::GetCurrentSession,
+        Self::DeleteSession,
     ];
 
     /// The roles that may perform this action: `x-roles` of its operation in the contract.
@@ -130,7 +134,10 @@ impl Action {
             | Self::GetDevice
             | Self::ListRepairOrders
             | Self::GetRepairOrder
-            | Self::ListAuditLogs => ANY_STAFF,
+            | Self::ListAuditLogs
+            | Self::ListStaffAccounts
+            | Self::GetCurrentSession
+            | Self::DeleteSession => ANY_STAFF,
             Self::CreateClient
             | Self::UpdateClient
             | Self::CreateDevice
@@ -142,8 +149,7 @@ impl Action {
             | Self::CompleteRepairOrder
             | Self::CancelRepairOrder => FRONT_DESK,
             Self::RecordDiagnosis | Self::RecordEstimate | Self::UpdateRepairWork => BENCH,
-            Self::ListStaffAccounts
-            | Self::CreateStaffAccount
+            Self::CreateStaffAccount
             | Self::UpdateStaffAccount
             | Self::SetClientLoyaltyTier
             | Self::CorrectRepairOrder => ADMINISTRATOR,
@@ -178,6 +184,8 @@ impl Action {
             Self::CompleteRepairOrder => "completeRepairOrder",
             Self::CancelRepairOrder => "cancelRepairOrder",
             Self::ListAuditLogs => "listAuditLogs",
+            Self::GetCurrentSession => "getCurrentSession",
+            Self::DeleteSession => "deleteSession",
         }
     }
 }

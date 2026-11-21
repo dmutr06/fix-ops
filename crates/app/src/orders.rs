@@ -18,7 +18,7 @@ use fixops_domain::staff::{Action, Actor, StaffAccount};
 use crate::clients::ClientStore;
 use crate::devices::DeviceStore;
 use crate::staff::StaffStore;
-use crate::{App, AppError, AppResult, StoreError};
+use crate::{App, AppError, AppResult, Page, Paged, StoreError};
 
 /// What reception enters to open an order.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,6 +51,11 @@ pub struct OrderFilter {
     pub client_id: Option<ClientId>,
     /// Exact ticket number.
     pub ticket_number: Option<String>,
+    pub assigned_technician_id: Option<StaffId>,
+    /// Only orders that are not `Completed` or `Cancelled`.
+    pub open: bool,
+    /// Only `Diagnosing` orders with an estimate and no client decision.
+    pub awaiting_decision: bool,
 }
 
 /// Port: storage of repair orders.
@@ -100,11 +105,12 @@ pub trait OrderStore: Send + Sync {
         id: OrderId,
     ) -> impl Future<Output = Result<Option<RepairOrder>, StoreError>> + Send;
 
-    /// Matching orders, ordered by id.
+    /// One `page` of matching orders in id order.
     fn list_orders(
         &self,
         filter: &OrderFilter,
-    ) -> impl Future<Output = Result<Vec<RepairOrder>, StoreError>> + Send;
+        page: Page,
+    ) -> impl Future<Output = Result<Paged<RepairOrder>, StoreError>> + Send;
 }
 
 impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
@@ -379,19 +385,24 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
             .await
     }
 
-    /// Orders matching `filter`, each with its current settlement (`listRepairOrders`).
+    /// One page of orders matching `filter`, each with its current settlement
+    /// (`listRepairOrders`).
     pub async fn list_orders(
         &self,
         actor: Actor,
         filter: OrderFilter,
-    ) -> AppResult<Vec<OrderView>> {
+        page: Page,
+    ) -> AppResult<Paged<OrderView>> {
         crate::authorize(actor, Action::ListRepairOrders)?;
-        let orders = self.store.list_orders(&filter).await?;
-        let mut views = Vec::with_capacity(orders.len());
-        for order in orders {
-            views.push(self.view_order(order).await?);
+        let orders = self.store.list_orders(&filter, page).await?;
+        let mut items = Vec::with_capacity(orders.items.len());
+        for order in orders.items {
+            items.push(self.view_order(order).await?);
         }
-        Ok(views)
+        Ok(Paged {
+            items,
+            total: orders.total,
+        })
     }
 }
 

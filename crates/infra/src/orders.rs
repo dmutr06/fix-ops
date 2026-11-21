@@ -1,7 +1,7 @@
 //! [`OrderStore`]: repair orders.
 
-use fixops_app::StoreError;
 use fixops_app::orders::{OrderFilter, OrderStore};
+use fixops_app::{Page, Paged, StoreError};
 use fixops_domain::audit::{FieldChange, RecordType};
 use fixops_domain::id::{ClientId, DeviceId, OrderId, StaffId};
 use fixops_domain::money::Cents;
@@ -247,25 +247,58 @@ impl OrderStore for PgStore {
         .map_err(store_error)
     }
 
-    async fn list_orders(&self, filter: &OrderFilter) -> Result<Vec<RepairOrder>, StoreError> {
-        sqlx::query_as::<_, OrderRow>(concat!(
+    async fn list_orders(
+        &self,
+        filter: &OrderFilter,
+        page: Page,
+    ) -> Result<Paged<RepairOrder>, StoreError> {
+        macro_rules! matches {
+            () => {
+                " FROM repair_orders
+                 WHERE ($1::text IS NULL OR status = $1)
+                   AND ($2::bigint IS NULL OR client_id = $2)
+                   AND ($3::text IS NULL OR ticket_number = $3)
+                   AND ($4::bigint IS NULL OR assigned_technician_id = $4)
+                   AND (NOT $5 OR status NOT IN ('Completed', 'Cancelled'))
+                   AND (NOT $6 OR (status = 'Diagnosing'
+                                   AND estimate_parts_cents IS NOT NULL
+                                   AND client_decision IS NULL))"
+            };
+        }
+        let status = filter.status.map(OrderStatus::as_str);
+        let client_id = filter.client_id.map(|id| id.0);
+        let technician_id = filter.assigned_technician_id.map(|id| id.0);
+        let total = sqlx::query_scalar(concat!("SELECT COUNT(*)", matches!()))
+            .bind(status)
+            .bind(client_id)
+            .bind(filter.ticket_number.as_deref())
+            .bind(technician_id)
+            .bind(filter.open)
+            .bind(filter.awaiting_decision)
+            .fetch_one(self.pool())
+            .await
+            .map_err(store_error)?;
+        let items = sqlx::query_as::<_, OrderRow>(concat!(
             "SELECT ",
             columns!(),
-            " FROM repair_orders
-             WHERE ($1::text IS NULL OR status = $1)
-               AND ($2::bigint IS NULL OR client_id = $2)
-               AND ($3::text IS NULL OR ticket_number = $3)
-             ORDER BY id"
+            matches!(),
+            " ORDER BY id LIMIT $7 OFFSET $8"
         ))
-        .bind(filter.status.map(OrderStatus::as_str))
-        .bind(filter.client_id.map(|id| id.0))
+        .bind(status)
+        .bind(client_id)
         .bind(filter.ticket_number.as_deref())
+        .bind(technician_id)
+        .bind(filter.open)
+        .bind(filter.awaiting_decision)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(self.pool())
         .await
         .map_err(store_error)?
         .into_iter()
         .map(|row| RepairOrder::try_from(row).map_err(store_error))
-        .collect()
+        .collect::<Result<_, _>>()?;
+        Ok(Paged { items, total })
     }
 }
 

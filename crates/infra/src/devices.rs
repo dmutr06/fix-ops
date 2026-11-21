@@ -1,7 +1,7 @@
 //! [`DeviceStore`]: serviced devices.
 
-use fixops_app::StoreError;
 use fixops_app::devices::{DeviceFilter, DeviceStore};
+use fixops_app::{Page, Paged, StoreError};
 use fixops_domain::audit::{FieldChange, RecordType};
 use fixops_domain::device::{Device, DeviceType, NewDevice, SerialNumber, Symptoms};
 use fixops_domain::id::{ClientId, DeviceId, StaffId};
@@ -81,22 +81,42 @@ impl DeviceStore for PgStore {
         .map_err(store_error)
     }
 
-    async fn list_devices(&self, filter: &DeviceFilter) -> Result<Vec<Device>, StoreError> {
-        sqlx::query_as::<_, DeviceRow>(
-            "SELECT id, client_id, device_type, serial_number, reported_symptoms
-             FROM devices
-             WHERE ($1::bigint IS NULL OR client_id = $1)
-               AND ($2::text IS NULL OR serial_number ILIKE $2)
-             ORDER BY id",
-        )
-        .bind(filter.client_id.map(|id| id.0))
-        .bind(filter.serial_number.as_deref().map(contains_pattern))
+    async fn list_devices(
+        &self,
+        filter: &DeviceFilter,
+        page: Page,
+    ) -> Result<Paged<Device>, StoreError> {
+        macro_rules! matches {
+            () => {
+                " FROM devices
+                 WHERE ($1::bigint IS NULL OR client_id = $1)
+                   AND ($2::text IS NULL OR serial_number ILIKE $2)"
+            };
+        }
+        let client_id = filter.client_id.map(|id| id.0);
+        let pattern = filter.serial_number.as_deref().map(contains_pattern);
+        let total = sqlx::query_scalar(concat!("SELECT COUNT(*)", matches!()))
+            .bind(client_id)
+            .bind(&pattern)
+            .fetch_one(self.pool())
+            .await
+            .map_err(store_error)?;
+        let items = sqlx::query_as::<_, DeviceRow>(concat!(
+            "SELECT id, client_id, device_type, serial_number, reported_symptoms",
+            matches!(),
+            " ORDER BY id LIMIT $3 OFFSET $4"
+        ))
+        .bind(client_id)
+        .bind(&pattern)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(self.pool())
         .await
         .map_err(store_error)?
         .into_iter()
         .map(|row| Device::try_from(row).map_err(store_error))
-        .collect()
+        .collect::<Result<_, _>>()?;
+        Ok(Paged { items, total })
     }
 
     async fn find_device_with_version(
