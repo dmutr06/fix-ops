@@ -149,8 +149,9 @@ async fn denied_and_rejected_actions_are_logged(pool: PgPool) {
     let (_, tech) = app.staff_token(&admin, "max.tech", "Technician").await;
     let (captured, _guard) = capture();
 
-    app.get("/api/v1/staff")
+    app.post("/api/v1/staff")
         .token(&tech)
+        .json(&json!({ "username": "sneaky", "password": PASSWORD, "role": "Technician" }))
         .send()
         .await
         .expect(StatusCode::FORBIDDEN);
@@ -167,7 +168,7 @@ async fn denied_and_rejected_actions_are_logged(pool: PgPool) {
         .find(|l| l["fields"]["message"] == "action denied")
         .unwrap_or_else(|| panic!("no denial line: {lines:#?}"));
     assert_eq!(denial["level"], "WARN");
-    assert_eq!(denial["fields"]["action"], "listStaffAccounts");
+    assert_eq!(denial["fields"]["action"], "createStaffAccount");
     assert_eq!(denial["fields"]["role"], "Technician");
 
     let rejection = lines

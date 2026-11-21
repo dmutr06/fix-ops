@@ -802,10 +802,16 @@ async fn role_change_applies_to_the_existing_session(pool: PgPool) {
     let admin = app.admin_token().await;
     let (tech_id, tech) = app.staff_token(&admin, "max.tech", "Technician").await;
     let path = format!("/api/v1/staff/{tech_id}");
+    // An Administrator-only action on a missing client: 403 without the role, 404 with it.
+    let set_tier = |token: &str| {
+        let request = app
+            .put("/api/v1/clients/999999/loyalty-tier")
+            .token(token)
+            .json(&json!({ "loyalty_tier": "Gold" }));
+        async move { request.send().await }
+    };
 
-    app.get("/api/v1/staff")
-        .token(&tech)
-        .send()
+    set_tier(&tech)
         .await
         .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 
@@ -817,7 +823,9 @@ async fn role_change_applies_to_the_existing_session(pool: PgPool) {
         .await
         .expect(StatusCode::OK);
     assert_staff_account(&body, "max.tech", "Administrator", true);
-    staff_list(&app, &tech).await;
+    set_tier(&tech)
+        .await
+        .expect_error(StatusCode::NOT_FOUND, "NOT_FOUND");
 
     app.patch(&path)
         .token(&admin)
@@ -825,9 +833,7 @@ async fn role_change_applies_to_the_existing_session(pool: PgPool) {
         .send()
         .await
         .expect(StatusCode::OK);
-    app.get("/api/v1/staff")
-        .token(&tech)
-        .send()
+    set_tier(&tech)
         .await
         .expect_error(StatusCode::FORBIDDEN, "FORBIDDEN");
 }
