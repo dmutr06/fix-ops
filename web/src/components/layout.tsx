@@ -1,7 +1,7 @@
 import { LogOutIcon, MoonIcon, SunIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router";
-import { FadeIn } from "@/components/motion";
+import { enter } from "@/components/loading";
 import { useTheme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,9 +56,12 @@ export function Layout({ children }: { children: ReactNode }) {
                     </div>
                 </div>
             </header>
-            <FadeIn key={pathname} className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">
+            <div
+                key={pathname}
+                className={`mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 ${enter}`}
+            >
                 <main className="contents">{children}</main>
-            </FadeIn>
+            </div>
         </div>
     );
 }

@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { Detail, ErrorAlert, OrderList, Section } from "@/components/common";
 import { FormDialog } from "@/components/form-dialog";
-import { PageSkeleton } from "@/components/motion";
+import { PageSkeleton } from "@/components/loading";
 import { SelectField } from "@/components/select-field";
 import { TextField } from "@/components/text-field";
 import { Button } from "@/components/ui/button";
