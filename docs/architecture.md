@@ -175,4 +175,5 @@ HTTP tests name their scenario (`bdd_005_cancel_before_diagnosis_charges_nothing
 
 - **Run locally:** `docker compose up -d --wait`, then `cargo run`. Migrations run at startup.
 - **Configuration:** environment variables, listed in the README.
-- **Backups (REQ-NF-004):** a daily `pg_dump` with a timed restore exercise. Added in P7.
+- **Backups (REQ-NF-004):** a daily `pg_dump` and a timed restore; see [recovery](recovery.md).
+- **API reference:** `cargo doc --workspace --no-deps --open`.
