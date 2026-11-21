@@ -19,6 +19,16 @@ How these fit together: [architecture](architecture.md). Versions are the latest
 | Errors | `thiserror` in libraries, `anyhow` in `main` | Typed errors where callers branch on them, context where they don't |
 | Logging | `tracing` + `tracing-subscriber` | Structured logs, filtered by `RUST_LOG` |
 
+## Web app
+
+| Area | Choice | Why |
+|---|---|---|
+| UI | React 19, TypeScript, Vite in `web/` | Common, typed, fast builds |
+| Components | [shadcn/ui](https://ui.shadcn.com) on Base UI, Tailwind CSS v4 | Accessible components copied into the project, themed with CSS variables, light and dark |
+| Data | TanStack Query, `openapi-fetch` with types generated from `openapi.yaml` | A contract change breaks the build instead of the screen |
+| Forms | React Hook Form and Zod with shadcn `Field` | Field errors before the request; the service's message after |
+| Serving | `rust-embed`: `web/dist` inside the binary at `/` | One artifact; same origin, so the session cookie needs no CORS |
+
 ## Tooling
 
 | Area | Choice | Why |
@@ -26,8 +36,10 @@ How these fit together: [architecture](architecture.md). Versions are the latest
 | Local database | Docker Compose (`docker-compose.yml`) | Same Postgres version locally and in CI |
 | Format and lint | `rustfmt`, `clippy` (`pedantic`, warnings fail CI) | One style, catches non-idiomatic code early |
 | Tests | `cargo test`: unit tests inline, HTTP tests in `tests/` | HTTP tests run the real router in-process against a real database, no network |
+| Web format and lint | Biome: double quotes, semicolons, 4 spaces | One fast tool for both |
+| Browser tests | Playwright in `web/e2e`, desktop and 360px phone | Runs the real service and app, and times each step (REQ-NF-001) |
 | API contract | `spec/openapi.yaml`, checked by `tests/contract.rs`; Prism mock suite in `tests/prism` | The contract is the source of truth for routes, payloads and error codes |
-| CI | GitHub Actions | fmt, clippy and tests against a Postgres service container on every PR |
+| CI | GitHub Actions | fmt, clippy, rustdoc and tests; Biome, typecheck and Playwright; each against a Postgres service container on every PR |
 
 ## Conventions
 
@@ -55,4 +67,3 @@ Code follows the [Rust Style Guide](https://doc.rust-lang.org/style-guide/) and 
 | `async-trait` | Ports use native `impl Future + Send` in traits |
 | `validator` | Input rules live in domain constructors, so they are tested once and cannot be skipped |
 | JWT | Server-side sessions can be revoked at once when an account is disabled (REQ-F-019) |
-| Frontend framework | The API comes first; the staff web interface is planned separately |

@@ -40,7 +40,7 @@ Test files are in `tests/` unless a crate path is given; `domain/` and `app/` ar
 
 | Requirement | Tests | Code | Docs |
 |---|---|---|---|
-| REQ-F-001 | `staff_access.rs`, `intake.rs`, `web_api.rs` | `app/staff.rs`, `src/http/auth.rs` | UG [Sign in](../docs/user_guide.md#sign-in); ARCH [Sessions](../docs/architecture.md#sessions) |
+| REQ-F-001 | `staff_access.rs`, `intake.rs`, `web_api.rs` | `app/staff.rs`, `src/http/auth.rs` | UG [Web app](../docs/user_guide.md#web-app), [Sign in](../docs/user_guide.md#sign-in-api); ARCH [Sessions](../docs/architecture.md#sessions) |
 | REQ-F-002 | `permissions.rs`, `staff_access.rs`, `diagnosis.rs`, `settlement.rs`, `web_api.rs`, `domain/staff.rs` | `domain/staff.rs`, `app/lib.rs` | UG [Who does what](../docs/user_guide.md#who-does-what); ARCH [Request flow](../docs/architecture.md#request-flow) |
 | REQ-F-003 | `intake.rs`, `stale_updates.rs`, `domain/client.rs` | `app/clients.rs`, `domain/client.rs` | UG [Who does what](../docs/user_guide.md#who-does-what) |
 | REQ-F-004 | `intake.rs`, `stale_updates.rs`, `domain/device.rs` | `app/devices.rs`, `domain/device.rs` | UG [Who does what](../docs/user_guide.md#who-does-what) |
