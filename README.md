@@ -25,7 +25,7 @@ docker compose up -d --wait
 FIXOPS_BOOTSTRAP_ADMIN_USERNAME=admin FIXOPS_BOOTSTRAP_ADMIN_PASSWORD='change-me-now' cargo run
 ```
 
-Open `http://127.0.0.1:8080` and sign in as `admin`. Migrations run at startup. The bootstrap variables create the first Administrator only while no staff account exists; later starts can omit them. Debug builds read `web/dist` from disk; release builds embed it, so build the web app first. For live reload, run `pnpm dev` in `web/` next to `cargo run`.
+Open `http://127.0.0.1:8080` and sign in as `admin`. For demo data on an empty database, run `FIXOPS_ADMIN_USERNAME=admin FIXOPS_ADMIN_PASSWORD='change-me-now' scripts/seed.sh`: three staff (password `seed-pass-123`), four clients, eight computers and orders at every stage. Migrations run at startup. The bootstrap variables create the first Administrator only while no staff account exists; later starts can omit them. Debug builds read `web/dist` from disk; release builds embed it, so build the web app first. For live reload, run `pnpm dev` in `web/` next to `cargo run`.
 
 The API listens on `http://127.0.0.1:8080/api/v1`:
 
