@@ -1,6 +1,7 @@
 import { LogOutIcon, MoonIcon, SunIcon } from "lucide-react";
 import type { ReactNode } from "react";
-import { NavLink } from "react-router";
+import { NavLink, useLocation } from "react-router";
+import { FadeIn } from "@/components/motion";
 import { useTheme } from "@/components/theme-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ const links = [
 export function Layout({ children }: { children: ReactNode }) {
     const { staff, signOut } = useSession();
     const { theme, setTheme } = useTheme();
+    const { pathname } = useLocation();
     const nav =
         staff.role === "Administrator" ? [...links, { to: "/staff", label: "Staff" }] : links;
     return (
@@ -54,7 +56,9 @@ export function Layout({ children }: { children: ReactNode }) {
                     </div>
                 </div>
             </header>
-            <main className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">{children}</main>
+            <FadeIn key={pathname} className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6">
+                <main className="contents">{children}</main>
+            </FadeIn>
         </div>
     );
 }

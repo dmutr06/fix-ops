@@ -1,9 +1,10 @@
+import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useId } from "react";
 import { Link } from "react-router";
+import { listItem } from "@/components/motion";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Spinner } from "@/components/ui/spinner";
 import type { Order, Page } from "@/lib/api";
 import { money } from "@/lib/format";
 
@@ -44,10 +45,6 @@ export function ErrorAlert({ error }: { error: unknown }) {
     );
 }
 
-export function Loading() {
-    return <Spinner className="text-muted-foreground" />;
-}
-
 const statusVariant: Record<Order["status"], "default" | "secondary" | "outline" | "destructive"> =
     {
         Received: "outline",
@@ -60,7 +57,18 @@ const statusVariant: Record<Order["status"], "default" | "secondary" | "outline"
 
 export function StatusBadge({ status, testId }: { status: Order["status"]; testId?: string }) {
     return (
-        <Badge variant={statusVariant[status]} data-testid={testId}>
+        <Badge
+            key={status}
+            variant={statusVariant[status]}
+            data-testid={testId}
+            render={
+                <motion.span
+                    initial={{ opacity: 0, scale: 0.85 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
+                />
+            }
+        >
             {status}
         </Badge>
     );
@@ -71,24 +79,27 @@ export function OrderList({ orders, empty }: { orders: Order[]; empty: string })
         return <p className="text-sm text-muted-foreground">{empty}</p>;
     }
     return (
-        <ul className="divide-y rounded-lg border">
-            {orders.map((order) => (
-                <li
-                    key={order.id}
-                    className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
-                >
-                    <Link
-                        to={`/orders/${order.id}`}
-                        className="font-medium underline-offset-4 hover:underline"
+        <ul className="divide-y overflow-hidden rounded-lg border">
+            <AnimatePresence initial={false}>
+                {orders.map((order) => (
+                    <motion.li
+                        key={order.id}
+                        {...listItem}
+                        className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
                     >
-                        {order.ticket_number}
-                    </Link>
-                    <StatusBadge status={order.status} />
-                    <span className="ml-auto text-sm text-muted-foreground">
-                        {money(order.settlement_cents)}
-                    </span>
-                </li>
-            ))}
+                        <Link
+                            to={`/orders/${order.id}`}
+                            className="font-medium underline-offset-4 hover:underline"
+                        >
+                            {order.ticket_number}
+                        </Link>
+                        <StatusBadge status={order.status} />
+                        <span className="ml-auto text-sm text-muted-foreground">
+                            {money(order.settlement_cents)}
+                        </span>
+                    </motion.li>
+                ))}
+            </AnimatePresence>
         </ul>
     );
 }

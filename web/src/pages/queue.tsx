@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { ErrorAlert, Loading, OrderList, Section } from "@/components/common";
+import { ErrorAlert, OrderList, Section } from "@/components/common";
+import { ListSkeleton } from "@/components/motion";
 import { api, callPage } from "@/lib/api";
 import type { operations } from "@/lib/schema";
 import { useSession } from "@/lib/session";
@@ -15,7 +16,7 @@ function QueueSection({ title, query, empty }: { title: string; query: Query; em
     return (
         <Section title={title}>
             {orders.isPending ? (
-                <Loading />
+                <ListSkeleton />
             ) : (
                 <OrderList orders={orders.data?.items ?? []} empty={empty} />
             )}

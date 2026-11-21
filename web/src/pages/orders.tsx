@@ -1,6 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { ErrorAlert, Loading, OrderList, PAGE_SIZE, Pager } from "@/components/common";
+import { ErrorAlert, OrderList, PAGE_SIZE, Pager } from "@/components/common";
+import { ListSkeleton } from "@/components/motion";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { api, callPage, type Order } from "@/lib/api";
@@ -26,6 +27,7 @@ export function OrdersPage() {
     };
     const orders = useQuery({
         queryKey: ["orders", query],
+        placeholderData: keepPreviousData,
         queryFn: () => callPage(api.GET("/api/v1/orders", { params: { query } })),
     });
     return (
@@ -59,7 +61,7 @@ export function OrdersPage() {
                 />
             </div>
             {orders.isPending ? (
-                <Loading />
+                <ListSkeleton />
             ) : (
                 <OrderList orders={orders.data?.items ?? []} empty="No orders match." />
             )}
