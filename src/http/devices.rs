@@ -5,7 +5,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::get;
 use fixops_app::devices::DeviceFilter;
-use fixops_app::{AppError, ErrorKind};
+use fixops_app::{AppError, ErrorKind, Page};
 use fixops_domain::device::{Device, DevicePatch, DeviceType, NewDevice, SerialNumber, Symptoms};
 use fixops_domain::id::{ClientId, DeviceId};
 use fixops_domain::staff::Action;
@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::auth::SignedIn;
 use super::json::{self, Json};
-use super::params::{PathId, Query, non_empty, positive_id, record_id};
+use super::params::{Listed, PathId, Query, non_empty, page, positive_id, record_id};
 use super::{ApiError, AppState};
 
 pub fn routes() -> Router<AppState> {
@@ -49,14 +49,17 @@ impl From<Device> for DeviceDto {
 struct DeviceQuery {
     client_id: Option<i64>,
     q: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 impl DeviceQuery {
-    fn into_filter(self) -> Result<DeviceFilter, AppError> {
-        Ok(DeviceFilter {
+    fn into_filter(self) -> Result<(DeviceFilter, Page), AppError> {
+        let filter = DeviceFilter {
             client_id: positive_id("client_id", self.client_id)?.map(ClientId),
             serial_number: non_empty("q", self.q)?,
-        })
+        };
+        Ok((filter, page(self.limit, self.offset)?))
     }
 }
 
@@ -126,11 +129,12 @@ async fn list(
     State(state): State<AppState>,
     SignedIn(actor): SignedIn,
     query: Result<Query<DeviceQuery>, ApiError>,
-) -> Result<Json<Vec<DeviceDto>>, ApiError> {
+) -> Result<Listed<DeviceDto>, ApiError> {
     state.app.authorize(actor, Action::ListDevices)?;
     let Query(query) = query?;
-    let devices = state.app.list_devices(actor, query.into_filter()?).await?;
-    Ok(Json(devices.into_iter().map(Into::into).collect()))
+    let (filter, page) = query.into_filter()?;
+    let devices = state.app.list_devices(actor, filter, page).await?;
+    Ok(Listed(devices.map(Into::into)))
 }
 
 async fn create(

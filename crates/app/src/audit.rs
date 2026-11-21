@@ -6,7 +6,7 @@ use fixops_domain::id::StaffId;
 use fixops_domain::staff::{Action, Actor};
 use time::OffsetDateTime;
 
-use crate::{App, AppResult, StoreError};
+use crate::{App, AppResult, Page, Paged, StoreError};
 
 /// One audited field change.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,21 +30,23 @@ pub struct AuditFilter {
 
 /// Port: read access to the audit log.
 pub trait AuditStore: Send + Sync {
-    /// Matching entries in the order they were recorded.
+    /// One `page` of matching entries in the order they were recorded.
     fn list_audit_entries(
         &self,
         filter: AuditFilter,
-    ) -> impl Future<Output = Result<Vec<AuditEntry>, StoreError>> + Send;
+        page: Page,
+    ) -> impl Future<Output = Result<Paged<AuditEntry>, StoreError>> + Send;
 }
 
 impl<S: AuditStore> App<S> {
-    /// Audit entries matching `filter`, oldest first.
+    /// One page of audit entries matching `filter`, oldest first.
     pub async fn list_audit_logs(
         &self,
         actor: Actor,
         filter: AuditFilter,
-    ) -> AppResult<Vec<AuditEntry>> {
+        page: Page,
+    ) -> AppResult<Paged<AuditEntry>> {
         crate::authorize(actor, Action::ListAuditLogs)?;
-        Ok(self.store.list_audit_entries(filter).await?)
+        Ok(self.store.list_audit_entries(filter, page).await?)
     }
 }

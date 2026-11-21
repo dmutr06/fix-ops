@@ -1,9 +1,11 @@
-//! `/staff`: staff account management by Administrator (REQ-F-019).
+//! `/staff`: the staff list for every role, account management by Administrator (REQ-F-019,
+//! ADD-004).
 
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, patch};
+use fixops_app::staff::StaffFilter;
 use fixops_app::{AppError, ErrorKind};
 use fixops_domain::id::StaffId;
 use fixops_domain::staff::{Action, NewStaffAccount, Password, Role, StaffAccount, Username};
@@ -11,7 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use super::auth::SignedIn;
 use super::json::{self, Json};
-use super::params::PathId;
+use super::params::{Listed, PathId, Query, page};
 use super::{ApiError, AppState};
 
 pub fn routes() -> Router<AppState> {
@@ -66,12 +68,29 @@ fn parse_role(raw: &str) -> Result<Role, AppError> {
     })
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StaffQuery {
+    role: Option<String>,
+    enabled: Option<bool>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
 async fn list(
     State(state): State<AppState>,
     SignedIn(actor): SignedIn,
-) -> Result<Json<Vec<StaffAccountDto>>, ApiError> {
-    let accounts = state.app.list_staff(actor).await?;
-    Ok(Json(accounts.into_iter().map(Into::into).collect()))
+    query: Result<Query<StaffQuery>, ApiError>,
+) -> Result<Listed<StaffAccountDto>, ApiError> {
+    state.app.authorize(actor, Action::ListStaffAccounts)?;
+    let Query(query) = query?;
+    let filter = StaffFilter {
+        role: query.role.as_deref().map(parse_role).transpose()?,
+        enabled: query.enabled,
+    };
+    let page = page(query.limit, query.offset)?;
+    let accounts = state.app.list_staff(actor, filter, page).await?;
+    Ok(Listed(accounts.map(Into::into)))
 }
 
 async fn create(

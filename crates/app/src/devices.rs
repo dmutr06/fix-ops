@@ -5,7 +5,7 @@ use fixops_domain::device::{Device, DevicePatch, NewDevice};
 use fixops_domain::id::{ClientId, DeviceId, StaffId};
 use fixops_domain::staff::{Action, Actor};
 
-use crate::{App, AppError, AppResult, StoreError};
+use crate::{App, AppError, AppResult, Page, Paged, StoreError};
 
 /// Which devices to list. Unset fields match everything.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -38,11 +38,12 @@ pub trait DeviceStore: Send + Sync {
         id: DeviceId,
     ) -> impl Future<Output = Result<Option<(Device, i64)>, StoreError>> + Send;
 
-    /// Matching devices, ordered by id.
+    /// One `page` of matching devices in id order.
     fn list_devices(
         &self,
         filter: &DeviceFilter,
-    ) -> impl Future<Output = Result<Vec<Device>, StoreError>> + Send;
+        page: Page,
+    ) -> impl Future<Output = Result<Paged<Device>, StoreError>> + Send;
 
     /// Saves every field of `device` with its audit `changes` in one transaction, only while
     /// the stored version still equals `version`, and increments it. When the device was saved
@@ -78,9 +79,14 @@ impl<S: DeviceStore> App<S> {
     }
 
     /// Devices matching `filter` (`listDevices`).
-    pub async fn list_devices(&self, actor: Actor, filter: DeviceFilter) -> AppResult<Vec<Device>> {
+    pub async fn list_devices(
+        &self,
+        actor: Actor,
+        filter: DeviceFilter,
+        page: Page,
+    ) -> AppResult<Paged<Device>> {
         crate::authorize(actor, Action::ListDevices)?;
-        Ok(self.store.list_devices(&filter).await?)
+        Ok(self.store.list_devices(&filter, page).await?)
     }
 
     /// Applies `patch` to a device (`updateDevice`). Only changed fields are saved and audited.

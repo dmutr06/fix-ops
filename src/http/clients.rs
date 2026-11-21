@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use super::auth::SignedIn;
 use super::json::{self, Json};
-use super::params::{PathId, Query, non_empty};
+use super::params::{Listed, PathId, Query, non_empty, page};
 use super::{ApiError, AppState};
 
 pub fn routes() -> Router<AppState> {
@@ -50,6 +50,8 @@ impl From<Client> for ClientDto {
 #[serde(deny_unknown_fields)]
 struct ClientQuery {
     q: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -110,12 +112,13 @@ async fn list(
     State(state): State<AppState>,
     SignedIn(actor): SignedIn,
     query: Result<Query<ClientQuery>, ApiError>,
-) -> Result<Json<Vec<ClientDto>>, ApiError> {
+) -> Result<Listed<ClientDto>, ApiError> {
     state.app.authorize(actor, Action::ListClients)?;
     let Query(query) = query?;
     let text = non_empty("q", query.q)?;
-    let clients = state.app.list_clients(actor, text.as_deref()).await?;
-    Ok(Json(clients.into_iter().map(Into::into).collect()))
+    let page = page(query.limit, query.offset)?;
+    let clients = state.app.list_clients(actor, text.as_deref(), page).await?;
+    Ok(Listed(clients.map(Into::into)))
 }
 
 async fn create(

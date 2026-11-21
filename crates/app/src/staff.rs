@@ -12,7 +12,7 @@ use fixops_domain::staff::{
 use sha2::{Digest, Sha256};
 use time::{Duration, OffsetDateTime};
 
-use crate::{App, AppError, AppResult, ErrorKind, StoreError};
+use crate::{App, AppError, AppResult, ErrorKind, Page, Paged, StoreError};
 
 /// How long a session token stays valid after sign-in.
 pub const SESSION_LIFETIME: Duration = Duration::hours(12);
@@ -87,10 +87,21 @@ pub struct NewSession {
     pub account: StaffAccount,
 }
 
+/// Which staff accounts to list. Unset fields match everything.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct StaffFilter {
+    pub role: Option<Role>,
+    pub enabled: Option<bool>,
+}
+
 /// Port: storage of staff accounts and sessions.
 pub trait StaffStore: Send + Sync {
-    /// All accounts, ordered by id.
-    fn list_staff(&self) -> impl Future<Output = Result<Vec<StaffAccount>, StoreError>> + Send;
+    /// One `page` of matching accounts in id order.
+    fn list_staff(
+        &self,
+        filter: StaffFilter,
+        page: Page,
+    ) -> impl Future<Output = Result<Paged<StaffAccount>, StoreError>> + Send;
 
     /// The account, or `None` if `id` is unknown.
     fn find_staff(
@@ -148,6 +159,12 @@ pub trait StaffStore: Send + Sync {
         &self,
         token: &TokenHash,
     ) -> impl Future<Output = Result<Option<Session>, StoreError>> + Send;
+
+    /// Deletes the session for `token`, if any.
+    fn delete_session(
+        &self,
+        token: &TokenHash,
+    ) -> impl Future<Output = Result<(), StoreError>> + Send;
 }
 
 /// Port: one-way password hashing.
@@ -217,10 +234,31 @@ impl<S: StaffStore + PasswordHasher> App<S> {
         })
     }
 
-    /// All staff accounts (`listStaffAccounts`).
-    pub async fn list_staff(&self, actor: Actor) -> AppResult<Vec<StaffAccount>> {
+    /// One page of staff accounts matching `filter` (`listStaffAccounts`). Every role may read
+    /// it, for example to choose a Technician at intake (ADD-004).
+    pub async fn list_staff(
+        &self,
+        actor: Actor,
+        filter: StaffFilter,
+        page: Page,
+    ) -> AppResult<Paged<StaffAccount>> {
         crate::authorize(actor, Action::ListStaffAccounts)?;
-        Ok(self.store.list_staff().await?)
+        Ok(self.store.list_staff(filter, page).await?)
+    }
+
+    /// The signed-in account (`getCurrentSession`).
+    pub async fn current_staff(&self, actor: Actor) -> AppResult<StaffAccount> {
+        crate::authorize(actor, Action::GetCurrentSession)?;
+        self.store
+            .find_staff(actor.id)
+            .await?
+            .ok_or_else(AppError::unauthenticated)
+    }
+
+    /// Ends the session of `token` (`deleteSession`). Later requests with it are `401`.
+    pub async fn sign_out(&self, actor: Actor, token: &str) -> AppResult<()> {
+        crate::authorize(actor, Action::DeleteSession)?;
+        Ok(self.store.delete_session(&TokenHash::of(token)).await?)
     }
 
     /// Creates an enabled account (`createStaffAccount`); a taken username is `409 CONFLICT`.
@@ -340,7 +378,11 @@ mod tests {
         }
 
         impl StaffStore for Fake {
-            async fn list_staff(&self) -> Result<Vec<StaffAccount>, StoreError> {
+            async fn list_staff(
+                &self,
+                _: StaffFilter,
+                _: Page,
+            ) -> Result<Paged<StaffAccount>, StoreError> {
                 unreachable!("not used by sign-in")
             }
 
@@ -403,6 +445,10 @@ mod tests {
             }
 
             async fn find_session(&self, _: &TokenHash) -> Result<Option<Session>, StoreError> {
+                unreachable!("not used by sign-in")
+            }
+
+            async fn delete_session(&self, _: &TokenHash) -> Result<(), StoreError> {
                 unreachable!("not used by sign-in")
             }
         }

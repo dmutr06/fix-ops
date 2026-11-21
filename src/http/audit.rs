@@ -3,15 +3,15 @@
 use axum::Router;
 use axum::extract::State;
 use axum::routing::get;
-use fixops_app::AppError;
 use fixops_app::audit::{AuditEntry, AuditFilter};
+use fixops_app::{AppError, Page};
 use fixops_domain::audit::RecordType;
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
 
 use super::auth::SignedIn;
-use super::params::{Query, positive_id};
-use super::{ApiError, AppState, Json};
+use super::params::{Listed, Query, page, positive_id};
+use super::{ApiError, AppState};
 
 pub fn routes() -> Router<AppState> {
     Router::new().route("/audit-logs", get(list))
@@ -22,10 +22,12 @@ pub fn routes() -> Router<AppState> {
 struct AuditQuery {
     record_type: Option<String>,
     record_id: Option<i64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 impl AuditQuery {
-    fn into_filter(self) -> Result<AuditFilter, AppError> {
+    fn into_filter(self) -> Result<(AuditFilter, Page), AppError> {
         let record_type = self
             .record_type
             .map(|raw| {
@@ -37,10 +39,11 @@ impl AuditQuery {
                 })
             })
             .transpose()?;
-        Ok(AuditFilter {
+        let filter = AuditFilter {
             record_type,
             record_id: positive_id("record_id", self.record_id)?,
-        })
+        };
+        Ok((filter, page(self.limit, self.offset)?))
     }
 }
 
@@ -77,10 +80,8 @@ async fn list(
     State(state): State<AppState>,
     SignedIn(actor): SignedIn,
     Query(query): Query<AuditQuery>,
-) -> Result<Json<Vec<AuditEntryDto>>, ApiError> {
-    let entries = state
-        .app
-        .list_audit_logs(actor, query.into_filter()?)
-        .await?;
-    Ok(Json(entries.into_iter().map(Into::into).collect()))
+) -> Result<Listed<AuditEntryDto>, ApiError> {
+    let (filter, page) = query.into_filter()?;
+    let entries = state.app.list_audit_logs(actor, filter, page).await?;
+    Ok(Listed(entries.map(Into::into)))
 }

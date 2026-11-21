@@ -1,10 +1,10 @@
 //! [`StaffStore`]: staff accounts and sessions.
 
-use fixops_app::StoreError;
-use fixops_app::staff::{Credentials, PasswordHash, Session, StaffStore, TokenHash};
+use fixops_app::staff::{Credentials, PasswordHash, Session, StaffFilter, StaffStore, TokenHash};
+use fixops_app::{Page, Paged, StoreError};
 use fixops_domain::audit::{FieldChange, RecordType};
 use fixops_domain::id::StaffId;
-use fixops_domain::staff::{NewStaffAccount, StaffAccount, Username};
+use fixops_domain::staff::{NewStaffAccount, Role, StaffAccount, Username};
 use sqlx::{FromRow, PgConnection};
 use time::OffsetDateTime;
 
@@ -74,16 +74,41 @@ async fn insert_staff(
 }
 
 impl StaffStore for PgStore {
-    async fn list_staff(&self) -> Result<Vec<StaffAccount>, StoreError> {
-        sqlx::query_as::<_, StaffRow>(
-            "SELECT id, username, role, enabled FROM staff_accounts ORDER BY id",
-        )
+    async fn list_staff(
+        &self,
+        filter: StaffFilter,
+        page: Page,
+    ) -> Result<Paged<StaffAccount>, StoreError> {
+        macro_rules! matches {
+            () => {
+                " FROM staff_accounts
+                 WHERE ($1::text IS NULL OR role = $1)
+                   AND ($2::boolean IS NULL OR enabled = $2)"
+            };
+        }
+        let role = filter.role.map(Role::as_str);
+        let total = sqlx::query_scalar(concat!("SELECT COUNT(*)", matches!()))
+            .bind(role)
+            .bind(filter.enabled)
+            .fetch_one(self.pool())
+            .await
+            .map_err(store_error)?;
+        let items = sqlx::query_as::<_, StaffRow>(concat!(
+            "SELECT id, username, role, enabled",
+            matches!(),
+            " ORDER BY id LIMIT $3 OFFSET $4"
+        ))
+        .bind(role)
+        .bind(filter.enabled)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(self.pool())
         .await
         .map_err(store_error)?
         .into_iter()
         .map(|row| StaffAccount::try_from(row).map_err(store_error))
-        .collect()
+        .collect::<Result<_, _>>()?;
+        Ok(Paged { items, total })
     }
 
     async fn find_staff(&self, id: StaffId) -> Result<Option<StaffAccount>, StoreError> {
@@ -255,6 +280,15 @@ impl StaffStore for PgStore {
             .await
             .map_err(store_error)?;
         tx.commit().await.map_err(store_error)
+    }
+
+    async fn delete_session(&self, token: &TokenHash) -> Result<(), StoreError> {
+        sqlx::query("DELETE FROM sessions WHERE token_hash = $1")
+            .bind(&token.0[..])
+            .execute(self.pool())
+            .await
+            .map_err(store_error)?;
+        Ok(())
     }
 
     async fn find_session(&self, token: &TokenHash) -> Result<Option<Session>, StoreError> {

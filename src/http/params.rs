@@ -2,10 +2,43 @@
 
 use axum::extract::{FromRequestParts, Path};
 use axum::http::request::Parts;
-use fixops_app::{AppError, ErrorKind};
+use axum::response::{IntoResponse, Response};
+use fixops_app::{AppError, ErrorKind, Page, Paged};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-use super::ApiError;
+use super::{ApiError, Json};
+
+/// Largest `limit` a list accepts.
+const MAX_LIMIT: i64 = 100;
+
+/// Checks the `limit` (1–100) and `offset` (0 or more) query parameters of a list (REQ-F-023).
+pub fn page(limit: Option<i64>, offset: Option<i64>) -> Result<Page, AppError> {
+    if limit.is_some_and(|limit| !(1..=MAX_LIMIT).contains(&limit)) {
+        return Err(AppError::validation(
+            "limit",
+            "limit must be between 1 and 100",
+        ));
+    }
+    let offset = offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(AppError::validation(
+            "offset",
+            "offset must not be negative",
+        ));
+    }
+    Ok(Page { limit, offset })
+}
+
+/// A list response: the page as a JSON array and the match count in `X-Total-Count`.
+pub struct Listed<T>(pub Paged<T>);
+
+impl<T: Serialize> IntoResponse for Listed<T> {
+    fn into_response(self) -> Response {
+        let Paged { items, total } = self.0;
+        ([("x-total-count", total.to_string())], Json(items)).into_response()
+    }
+}
 
 /// A record id from the single path parameter of a route, such as `{staffId}`. Anything but an
 /// integer of at least 1 is `400 VALIDATION_ERROR` naming the parameter.

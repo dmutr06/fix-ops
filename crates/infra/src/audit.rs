@@ -1,8 +1,8 @@
 //! The audit log: the shared writer every store uses inside its transactions, and the
 //! [`AuditStore`] reader.
 
-use fixops_app::StoreError;
 use fixops_app::audit::{AuditEntry, AuditFilter, AuditStore};
+use fixops_app::{Page, Paged, StoreError};
 use fixops_domain::audit::{FieldChange, RecordType};
 use fixops_domain::id::StaffId;
 use sqlx::{FromRow, PgConnection};
@@ -81,22 +81,41 @@ impl TryFrom<AuditRow> for AuditEntry {
 }
 
 impl AuditStore for PgStore {
-    async fn list_audit_entries(&self, filter: AuditFilter) -> Result<Vec<AuditEntry>, StoreError> {
-        sqlx::query_as::<_, AuditRow>(
+    async fn list_audit_entries(
+        &self,
+        filter: AuditFilter,
+        page: Page,
+    ) -> Result<Paged<AuditEntry>, StoreError> {
+        macro_rules! matches {
+            () => {
+                " FROM audit_log
+                 WHERE ($1::text IS NULL OR record_type = $1)
+                   AND ($2::bigint IS NULL OR record_id = $2)"
+            };
+        }
+        let record_type = filter.record_type.map(RecordType::as_str);
+        let total = sqlx::query_scalar(concat!("SELECT COUNT(*)", matches!()))
+            .bind(record_type)
+            .bind(filter.record_id)
+            .fetch_one(self.pool())
+            .await
+            .map_err(store_error)?;
+        let items = sqlx::query_as::<_, AuditRow>(concat!(
             "SELECT id, actor_id, recorded_at, record_type, record_id, field,
-                    previous_value, new_value
-             FROM audit_log
-             WHERE ($1::text IS NULL OR record_type = $1)
-               AND ($2::bigint IS NULL OR record_id = $2)
-             ORDER BY recorded_at, id",
-        )
-        .bind(filter.record_type.map(RecordType::as_str))
+                    previous_value, new_value",
+            matches!(),
+            " ORDER BY recorded_at, id LIMIT $3 OFFSET $4"
+        ))
+        .bind(record_type)
         .bind(filter.record_id)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(self.pool())
         .await
         .map_err(store_error)?
         .into_iter()
         .map(|row| AuditEntry::try_from(row).map_err(store_error))
-        .collect()
+        .collect::<Result<_, _>>()?;
+        Ok(Paged { items, total })
     }
 }

@@ -1,7 +1,7 @@
 //! [`ClientStore`]: clients and their loyalty tiers.
 
-use fixops_app::StoreError;
 use fixops_app::clients::ClientStore;
+use fixops_app::{Page, Paged, StoreError};
 use fixops_domain::audit::{FieldChange, RecordType};
 use fixops_domain::client::{Client, ClientName, Email, LoyaltyTier, NewClient, Phone};
 use fixops_domain::id::{ClientId, StaffId};
@@ -85,19 +85,37 @@ impl ClientStore for PgStore {
         .map_err(store_error)
     }
 
-    async fn search_clients(&self, text: Option<&str>) -> Result<Vec<Client>, StoreError> {
-        sqlx::query_as::<_, ClientRow>(
-            "SELECT id, name, phone, email, loyalty_tier FROM clients
-             WHERE $1::text IS NULL OR name ILIKE $1 OR phone ILIKE $1
-             ORDER BY id",
-        )
-        .bind(text.map(contains_pattern))
+    async fn search_clients(
+        &self,
+        text: Option<&str>,
+        page: Page,
+    ) -> Result<Paged<Client>, StoreError> {
+        macro_rules! matches {
+            () => {
+                " FROM clients WHERE $1::text IS NULL OR name ILIKE $1 OR phone ILIKE $1"
+            };
+        }
+        let pattern = text.map(contains_pattern);
+        let total = sqlx::query_scalar(concat!("SELECT COUNT(*)", matches!()))
+            .bind(&pattern)
+            .fetch_one(self.pool())
+            .await
+            .map_err(store_error)?;
+        let items = sqlx::query_as::<_, ClientRow>(concat!(
+            "SELECT id, name, phone, email, loyalty_tier",
+            matches!(),
+            " ORDER BY id LIMIT $2 OFFSET $3"
+        ))
+        .bind(&pattern)
+        .bind(page.limit)
+        .bind(page.offset)
         .fetch_all(self.pool())
         .await
         .map_err(store_error)?
         .into_iter()
         .map(|row| Client::try_from(row).map_err(store_error))
-        .collect()
+        .collect::<Result<_, _>>()?;
+        Ok(Paged { items, total })
     }
 
     async fn find_client_with_version(
