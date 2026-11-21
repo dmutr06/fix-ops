@@ -39,6 +39,43 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  web:
+    runs-on: ubuntu-latest
+    services:
+      db:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: fixops
+          POSTGRES_PASSWORD: fixops
+          POSTGRES_DB: fixops
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U fixops -d fixops"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm e2e
+
   recovery:
     runs-on: ubuntu-latest
     steps:
