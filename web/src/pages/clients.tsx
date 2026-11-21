@@ -1,11 +1,13 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
+import { AnimatePresence, motion } from "motion/react";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useNavigate } from "react-router";
 import { z } from "zod";
-import { ErrorAlert, Loading, PAGE_SIZE, Pager } from "@/components/common";
+import { ErrorAlert, PAGE_SIZE, Pager } from "@/components/common";
 import { FormDialog } from "@/components/form-dialog";
+import { ListSkeleton, listItem } from "@/components/motion";
 import { TextField } from "@/components/text-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -95,6 +97,7 @@ export function ClientsPage() {
     const query = { q: text.trim() || undefined, limit: PAGE_SIZE, offset };
     const clients = useQuery({
         queryKey: ["clients", query],
+        placeholderData: keepPreviousData,
         queryFn: () => callPage(api.GET("/api/v1/clients", { params: { query } })),
     });
     return (
@@ -113,26 +116,31 @@ export function ClientsPage() {
                 }}
             />
             {clients.isPending ? (
-                <Loading />
+                <ListSkeleton />
             ) : clients.data?.items.length ? (
-                <ul className="divide-y rounded-lg border">
-                    {clients.data.items.map((client) => (
-                        <li
-                            key={client.id}
-                            className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
-                        >
-                            <Link
-                                to={`/clients/${client.id}`}
-                                className="font-medium underline-offset-4 hover:underline"
+                <ul className="divide-y overflow-hidden rounded-lg border">
+                    <AnimatePresence initial={false}>
+                        {clients.data.items.map((client) => (
+                            <motion.li
+                                key={client.id}
+                                {...listItem}
+                                className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
                             >
-                                {client.name}
-                            </Link>
-                            <span className="text-sm text-muted-foreground">{client.phone}</span>
-                            <span className="ml-auto text-sm text-muted-foreground">
-                                {client.loyalty_tier}
-                            </span>
-                        </li>
-                    ))}
+                                <Link
+                                    to={`/clients/${client.id}`}
+                                    className="font-medium underline-offset-4 hover:underline"
+                                >
+                                    {client.name}
+                                </Link>
+                                <span className="text-sm text-muted-foreground">
+                                    {client.phone}
+                                </span>
+                                <span className="ml-auto text-sm text-muted-foreground">
+                                    {client.loyalty_tier}
+                                </span>
+                            </motion.li>
+                        ))}
+                    </AnimatePresence>
                 </ul>
             ) : (
                 <p className="text-sm text-muted-foreground">No clients match.</p>

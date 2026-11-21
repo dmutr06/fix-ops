@@ -4,8 +4,9 @@ import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
-import { ErrorAlert, Loading, Section } from "@/components/common";
+import { ErrorAlert, Section } from "@/components/common";
 import { FormDialog } from "@/components/form-dialog";
+import { ListSkeleton } from "@/components/motion";
 import { SelectField } from "@/components/select-field";
 import { TextField } from "@/components/text-field";
 import { Button } from "@/components/ui/button";
@@ -129,7 +130,7 @@ export function StaffPage() {
             <h1 className="text-xl font-semibold">Staff</h1>
             <Section title="Accounts" actions={<NewStaffDialog />}>
                 {staff.isPending ? (
-                    <Loading />
+                    <ListSkeleton />
                 ) : (
                     <div className="overflow-x-auto rounded-lg border">
                         <table className="w-full text-sm">

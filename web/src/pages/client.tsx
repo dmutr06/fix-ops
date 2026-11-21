@@ -5,8 +5,9 @@ import { useForm } from "react-hook-form";
 import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { z } from "zod";
-import { Detail, ErrorAlert, Loading, OrderList, Section } from "@/components/common";
+import { Detail, ErrorAlert, OrderList, Section } from "@/components/common";
 import { FormDialog } from "@/components/form-dialog";
+import { PageSkeleton } from "@/components/motion";
 import { SelectField } from "@/components/select-field";
 import { TextField } from "@/components/text-field";
 import { Button } from "@/components/ui/button";
@@ -246,7 +247,7 @@ export function ClientPage() {
             ),
     });
     if (client.isPending) {
-        return <Loading />;
+        return <PageSkeleton />;
     }
     if (!client.data) {
         return <ErrorAlert error={client.error} />;
