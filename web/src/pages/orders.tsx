@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { ErrorAlert, OrderList, PAGE_SIZE, Pager } from "@/components/common";
-import { ListSkeleton } from "@/components/motion";
+import { ListSkeleton } from "@/components/loading";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { api, callPage, type Order } from "@/lib/api";

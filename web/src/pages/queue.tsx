@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { ErrorAlert, OrderList, Section } from "@/components/common";
-import { ListSkeleton } from "@/components/motion";
+import { ListSkeleton } from "@/components/loading";
 import { api, callPage } from "@/lib/api";
 import type { operations } from "@/lib/schema";
 import { useSession } from "@/lib/session";

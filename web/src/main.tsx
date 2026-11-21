@@ -1,5 +1,4 @@
 import { MutationCache, QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { MotionConfig } from "motion/react";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
@@ -28,9 +27,7 @@ if (root) {
         <StrictMode>
             <ThemeProvider>
                 <QueryClientProvider client={queryClient}>
-                    <MotionConfig reducedMotion="user">
-                        <App />
-                    </MotionConfig>
+                    <App />
                 </QueryClientProvider>
             </ThemeProvider>
         </StrictMode>,

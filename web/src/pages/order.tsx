@@ -1,10 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useId, useState } from "react";
 import { Link, useParams } from "react-router";
 import { Detail, ErrorAlert, Section, StatusBadge } from "@/components/common";
 import { FormDialog } from "@/components/form-dialog";
-import { FadeIn, listItem, PageSkeleton } from "@/components/motion";
+import { enter, PageSkeleton } from "@/components/loading";
 import { SelectField } from "@/components/select-field";
 import { TextField } from "@/components/text-field";
 import { Button } from "@/components/ui/button";
@@ -305,18 +304,12 @@ function Actions({ order, command }: { order: Order; command: Command }) {
     }
     return (
         <Section title="Actions">
-            <motion.div layout transition={{ duration: 0.2 }} className="rounded-lg border p-4">
-                <FadeIn layout="position" className="flex flex-col gap-4">
-                    {steps}
-                </FadeIn>
-            </motion.div>
-            <AnimatePresence>
-                {command.error && (
-                    <FadeIn key="error" exit={{ opacity: 0 }}>
-                        <ErrorAlert error={command.error} />
-                    </FadeIn>
-                )}
-            </AnimatePresence>
+            <div className={`flex flex-col gap-4 rounded-lg border p-4 ${enter}`}>{steps}</div>
+            {command.error ? (
+                <div className={enter}>
+                    <ErrorAlert error={command.error} />
+                </div>
+            ) : null}
         </Section>
     );
 }
@@ -427,22 +420,17 @@ function History({ orderId, names }: { orderId: number; names: Map<number, strin
     return (
         <Section title="History">
             <ul className="flex flex-col gap-1 text-sm">
-                <AnimatePresence initial={false}>
-                    {history.data?.items.map((entry) => (
-                        <motion.li key={entry.id} {...listItem} className="flex flex-wrap gap-x-2">
-                            <span className="text-muted-foreground">
-                                {dateTime(entry.recorded_at)}
-                            </span>
-                            <span className="font-medium">
-                                {names.get(entry.actor_id) ?? `#${entry.actor_id}`}
-                            </span>
-                            <span>
-                                {entry.field}: {entry.previous_value ?? "—"} →{" "}
-                                {entry.new_value ?? "—"}
-                            </span>
-                        </motion.li>
-                    ))}
-                </AnimatePresence>
+                {history.data?.items.map((entry) => (
+                    <li key={entry.id} className={`flex flex-wrap gap-x-2 ${enter}`}>
+                        <span className="text-muted-foreground">{dateTime(entry.recorded_at)}</span>
+                        <span className="font-medium">
+                            {names.get(entry.actor_id) ?? `#${entry.actor_id}`}
+                        </span>
+                        <span>
+                            {entry.field}: {entry.previous_value ?? "—"} → {entry.new_value ?? "—"}
+                        </span>
+                    </li>
+                ))}
             </ul>
             <ErrorAlert error={history.error} />
         </Section>

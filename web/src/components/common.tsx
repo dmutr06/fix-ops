@@ -1,7 +1,6 @@
-import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useId } from "react";
 import { Link } from "react-router";
-import { listItem } from "@/components/motion";
+import { enter } from "@/components/loading";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,13 +60,7 @@ export function StatusBadge({ status, testId }: { status: Order["status"]; testI
             key={status}
             variant={statusVariant[status]}
             data-testid={testId}
-            render={
-                <motion.span
-                    initial={{ opacity: 0, scale: 0.85 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                />
-            }
+            className="motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-90 duration-200 ease-out"
         >
             {status}
         </Badge>
@@ -80,26 +73,23 @@ export function OrderList({ orders, empty }: { orders: Order[]; empty: string })
     }
     return (
         <ul className="divide-y overflow-hidden rounded-lg border">
-            <AnimatePresence initial={false}>
-                {orders.map((order) => (
-                    <motion.li
-                        key={order.id}
-                        {...listItem}
-                        className="flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2"
+            {orders.map((order) => (
+                <li
+                    key={order.id}
+                    className={`flex flex-wrap items-center gap-x-4 gap-y-1 px-3 py-2 ${enter}`}
+                >
+                    <Link
+                        to={`/orders/${order.id}`}
+                        className="font-medium underline-offset-4 hover:underline"
                     >
-                        <Link
-                            to={`/orders/${order.id}`}
-                            className="font-medium underline-offset-4 hover:underline"
-                        >
-                            {order.ticket_number}
-                        </Link>
-                        <StatusBadge status={order.status} />
-                        <span className="ml-auto text-sm text-muted-foreground">
-                            {money(order.settlement_cents)}
-                        </span>
-                    </motion.li>
-                ))}
-            </AnimatePresence>
+                        {order.ticket_number}
+                    </Link>
+                    <StatusBadge status={order.status} />
+                    <span className="ml-auto text-sm text-muted-foreground">
+                        {money(order.settlement_cents)}
+                    </span>
+                </li>
+            ))}
         </ul>
     );
 }
