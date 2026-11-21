@@ -31,6 +31,17 @@ How these fit together: [architecture](architecture.md). Versions are the latest
 
 ## Conventions
 
+Code follows the [Rust Style Guide](https://doc.rust-lang.org/style-guide/) and the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/naming.html) for naming. CI enforces both:
+
+| Check | Command |
+|---|---|
+| Formatting | `cargo fmt --all --check` (rustfmt defaults) |
+| Lints | `cargo clippy --workspace --all-targets -- -D warnings` (`clippy::pedantic` and the workspace lints in `Cargo.toml`) |
+| Doc comments | `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` |
+
+- Names use the [glossary](../spec/glossary.md) and the contract's field names: `RepairOrder`, `LoyaltyTier`, `used_parts_cents`.
+- Every module and public function, method, constant and type has a doc comment. It states the purpose, the contract (rules, `# Errors`, the `operationId` it serves) and the requirement it implements. Fields and variants are documented only when the name says too little, such as units or when a value is absent.
+
 - Dependencies are added with the feature that needs them, not upfront.
 - Shared versions live in `[workspace.dependencies]`; crates use `dep.workspace = true`.
 - SQL is written by hand with runtime-checked queries (`sqlx::query_as`), so building needs no database. Every query is covered by an HTTP test.
