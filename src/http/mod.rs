@@ -30,6 +30,7 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Shared state over the given store.
     pub fn new(store: PgStore) -> Self {
         Self {
             app: Arc::new(App::new(store)),

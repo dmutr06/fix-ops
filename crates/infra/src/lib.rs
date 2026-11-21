@@ -26,10 +26,12 @@ pub struct PgStore {
 }
 
 impl PgStore {
+    /// Wraps an open pool. Run [`MIGRATOR`] on it first.
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    /// The connection pool, for startup tasks and tests.
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }

@@ -14,6 +14,7 @@ pub enum RecordType {
 }
 
 impl RecordType {
+    /// Every record type, as the contract lists them.
     pub const ALL: [Self; 4] = [
         Self::StaffAccount,
         Self::Client,
@@ -21,6 +22,7 @@ impl RecordType {
         Self::RepairOrder,
     ];
 
+    /// The contract spelling, stored in `audit_log.record_type`.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::StaffAccount => "StaffAccount",
@@ -52,6 +54,7 @@ pub struct FieldChange {
 }
 
 impl FieldChange {
+    /// A change of `field` from `previous` to `new`; `None` means absent.
     pub fn new(field: &'static str, previous: Option<String>, new: Option<String>) -> Self {
         Self {
             field,

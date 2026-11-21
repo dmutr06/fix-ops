@@ -11,10 +11,12 @@ use crate::id::ClientId;
 pub struct ClientName(String);
 
 impl ClientName {
+    /// Trims `raw`; empty is invalid `name`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         required_text("name", "name is required and cannot be empty", raw).map(Self)
     }
 
+    /// The trimmed name.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -25,10 +27,12 @@ impl ClientName {
 pub struct Phone(String);
 
 impl Phone {
+    /// Trims `raw`; empty is invalid `phone`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         required_text("phone", "phone is required and cannot be empty", raw).map(Self)
     }
 
+    /// The trimmed phone number.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -60,6 +64,7 @@ impl Email {
         }
     }
 
+    /// The trimmed email address.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -87,8 +92,10 @@ pub enum LoyaltyTier {
 }
 
 impl LoyaltyTier {
+    /// Every tier, from no discount to the largest.
     pub const ALL: [Self; 3] = [Self::Standard, Self::Silver, Self::Gold];
 
+    /// The contract spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Standard => "Standard",
@@ -97,6 +104,7 @@ impl LoyaltyTier {
         }
     }
 
+    /// Parses the contract spelling; anything else is invalid `loyalty_tier`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         Self::ALL
             .into_iter()

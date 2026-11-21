@@ -52,6 +52,7 @@ impl SessionToken {
         Self(URL_SAFE_NO_PAD.encode(bytes))
     }
 
+    /// The token text.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -73,6 +74,7 @@ impl fmt::Debug for SessionToken {
 pub struct TokenHash(pub [u8; 32]);
 
 impl TokenHash {
+    /// Hashes a token as presented by the client.
     pub fn of(token: &str) -> Self {
         Self(Sha256::digest(token.as_bytes()).into())
     }
@@ -90,11 +92,13 @@ pub trait StaffStore: Send + Sync {
     /// All accounts, ordered by id.
     fn list_staff(&self) -> impl Future<Output = Result<Vec<StaffAccount>, StoreError>> + Send;
 
+    /// The account, or `None` if `id` is unknown.
     fn find_staff(
         &self,
         id: StaffId,
     ) -> impl Future<Output = Result<Option<StaffAccount>, StoreError>> + Send;
 
+    /// The account and password hash for `username`, or `None` if there is no such account.
     fn find_credentials(
         &self,
         username: &Username,
@@ -131,6 +135,7 @@ pub trait StaffStore: Send + Sync {
         end_sessions: bool,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
+    /// Stores a new session for `staff`, keyed by the token hash.
     fn create_session(
         &self,
         staff: StaffId,
@@ -138,6 +143,7 @@ pub trait StaffStore: Send + Sync {
         expires_at: OffsetDateTime,
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
+    /// The session for `token`, expired or not; the caller checks expiry and the account.
     fn find_session(
         &self,
         token: &TokenHash,
@@ -146,6 +152,7 @@ pub trait StaffStore: Send + Sync {
 
 /// Port: one-way password hashing.
 pub trait PasswordHasher: Send + Sync {
+    /// Hashes a new password for storage.
     fn hash_password(
         &self,
         password: &Password,
@@ -210,11 +217,13 @@ impl<S: StaffStore + PasswordHasher> App<S> {
         })
     }
 
+    /// All staff accounts (`listStaffAccounts`).
     pub async fn list_staff(&self, actor: Actor) -> AppResult<Vec<StaffAccount>> {
         crate::authorize(actor, Action::ListStaffAccounts)?;
         Ok(self.store.list_staff().await?)
     }
 
+    /// Creates an enabled account (`createStaffAccount`); a taken username is `409 CONFLICT`.
     pub async fn create_staff(
         &self,
         actor: Actor,

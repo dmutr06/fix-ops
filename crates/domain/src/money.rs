@@ -9,6 +9,7 @@ use crate::error::InvalidField;
 pub struct Cents(i64);
 
 impl Cents {
+    /// No money.
     pub const ZERO: Self = Self(0);
 
     /// Accepts `value` when it is not negative. `field` names the contract field for the error.
@@ -19,6 +20,7 @@ impl Cents {
         Ok(Self(value))
     }
 
+    /// The amount in cents, never negative.
     pub const fn get(self) -> i64 {
         self.0
     }

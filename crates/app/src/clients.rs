@@ -17,6 +17,7 @@ pub trait ClientStore: Send + Sync {
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<Client, StoreError>> + Send;
 
+    /// The client, or `None` if `id` is unknown.
     fn find_client(
         &self,
         id: ClientId,
@@ -48,6 +49,7 @@ pub trait ClientStore: Send + Sync {
 }
 
 impl<S: ClientStore> App<S> {
+    /// Creates a client at the `Standard` tier (`createClient`).
     pub async fn create_client(&self, actor: Actor, client: NewClient) -> AppResult<Client> {
         crate::authorize(actor, Action::CreateClient)?;
         Ok(self
@@ -56,6 +58,7 @@ impl<S: ClientStore> App<S> {
             .await?)
     }
 
+    /// One client (`getClient`); `404` if unknown.
     pub async fn get_client(&self, actor: Actor, id: ClientId) -> AppResult<Client> {
         crate::authorize(actor, Action::GetClient)?;
         self.load_client(id).await
@@ -67,6 +70,11 @@ impl<S: ClientStore> App<S> {
         Ok(self.store.search_clients(text).await?)
     }
 
+    /// Applies `patch` to a client (`updateClient`). Only changed fields are saved and audited.
+    ///
+    /// # Errors
+    ///
+    /// `404` if unknown; `409 GUARD_VIOLATION` if another request saved the client first.
     pub async fn update_client(
         &self,
         actor: Actor,

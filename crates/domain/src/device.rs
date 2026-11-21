@@ -15,8 +15,10 @@ pub enum DeviceType {
 }
 
 impl DeviceType {
+    /// Every device type.
     pub const ALL: [Self; 3] = [Self::Desktop, Self::Laptop, Self::Server];
 
+    /// The contract spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Desktop => "Desktop",
@@ -25,6 +27,7 @@ impl DeviceType {
         }
     }
 
+    /// Parses the contract spelling; anything else is invalid `device_type`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         Self::ALL
             .into_iter()
@@ -41,6 +44,7 @@ impl DeviceType {
 pub struct SerialNumber(String);
 
 impl SerialNumber {
+    /// Trims `raw`; empty is invalid `serial_number`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         required_text(
             "serial_number",
@@ -50,6 +54,7 @@ impl SerialNumber {
         .map(Self)
     }
 
+    /// The trimmed serial number.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -60,6 +65,7 @@ impl SerialNumber {
 pub struct Symptoms(String);
 
 impl Symptoms {
+    /// Trims `raw`; empty is invalid `reported_symptoms`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         required_text(
             "reported_symptoms",
@@ -69,6 +75,7 @@ impl Symptoms {
         .map(Self)
     }
 
+    /// The trimmed symptoms.
     pub fn as_str(&self) -> &str {
         &self.0
     }
