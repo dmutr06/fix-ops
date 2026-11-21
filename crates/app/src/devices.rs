@@ -26,6 +26,7 @@ pub trait DeviceStore: Send + Sync {
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<Device, StoreError>> + Send;
 
+    /// The device, or `None` if `id` is unknown.
     fn find_device(
         &self,
         id: DeviceId,
@@ -70,16 +71,23 @@ impl<S: DeviceStore> App<S> {
             })
     }
 
+    /// One device (`getDevice`); `404` if unknown.
     pub async fn get_device(&self, actor: Actor, id: DeviceId) -> AppResult<Device> {
         crate::authorize(actor, Action::GetDevice)?;
         self.load_device(id).await
     }
 
+    /// Devices matching `filter` (`listDevices`).
     pub async fn list_devices(&self, actor: Actor, filter: DeviceFilter) -> AppResult<Vec<Device>> {
         crate::authorize(actor, Action::ListDevices)?;
         Ok(self.store.list_devices(&filter).await?)
     }
 
+    /// Applies `patch` to a device (`updateDevice`). Only changed fields are saved and audited.
+    ///
+    /// # Errors
+    ///
+    /// `404` if unknown; `409 GUARD_VIOLATION` if another request saved the device first.
     pub async fn update_device(
         &self,
         actor: Actor,

@@ -15,8 +15,10 @@ pub enum Role {
 }
 
 impl Role {
+    /// Every role.
     pub const ALL: [Self; 3] = [Self::Receptionist, Self::Technician, Self::Administrator];
 
+    /// The contract spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Receptionist => "Receptionist",
@@ -49,6 +51,7 @@ impl std::str::FromStr for Role {
     }
 }
 
+/// A stored role name that is not a [`Role`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("unknown role {0:?}")]
 pub struct UnknownRole(pub String);
@@ -84,6 +87,7 @@ pub enum Action {
 }
 
 impl Action {
+    /// Every protected operation; tests check it against the contract.
     pub const ALL: [Self; 25] = [
         Self::ListStaffAccounts,
         Self::CreateStaffAccount,
@@ -212,6 +216,7 @@ impl Actor {
 pub struct Username(String);
 
 impl Username {
+    /// Trims `raw`; empty is invalid `username`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         match raw.trim() {
             "" => Err(InvalidField::new("username", "username is required")),
@@ -219,10 +224,12 @@ impl Username {
         }
     }
 
+    /// The trimmed username.
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
+    /// The trimmed username, owned.
     pub fn into_string(self) -> String {
         self.0
     }
@@ -242,6 +249,8 @@ impl Password {
     /// Fewest characters a new password may have.
     pub const MIN_CHARS: usize = 8;
 
+    /// Accepts at least [`Password::MIN_CHARS`] characters, kept as typed; shorter is invalid
+    /// `password`.
     pub fn parse(raw: String) -> Result<Self, InvalidField> {
         if raw.chars().count() < Self::MIN_CHARS {
             return Err(InvalidField::new(

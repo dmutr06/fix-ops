@@ -1,3 +1,6 @@
+//! The `fixops` service binary: reads the configuration, runs migrations, creates the first
+//! Administrator if needed, and serves the API.
+
 use anyhow::Context;
 use fixops::config::Config;
 use fixops::{AppState, router};

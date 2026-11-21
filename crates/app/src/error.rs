@@ -38,6 +38,7 @@ pub struct AppError {
 }
 
 impl AppError {
+    /// An error of `kind` with no details.
     pub fn new(kind: ErrorKind, message: impl Into<Cow<'static, str>>) -> Self {
         Self {
             kind,
@@ -52,26 +53,32 @@ impl AppError {
         Self::new(ErrorKind::Validation, message).with("field", field)
     }
 
+    /// No valid session: `401 UNAUTHENTICATED`.
     pub fn unauthenticated() -> Self {
         Self::new(ErrorKind::Unauthenticated, "Staff sign-in is required")
     }
 
+    /// The role or account may not act: `403 FORBIDDEN`.
     pub fn forbidden(message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorKind::Forbidden, message)
     }
 
+    /// The record does not exist: `404 NOT_FOUND`. Name the missing link with [`AppError::with`].
     pub fn not_found() -> Self {
         Self::new(ErrorKind::NotFound, "Requested record does not exist")
     }
 
+    /// A unique value is taken or a link is inconsistent: `409 CONFLICT`.
     pub fn conflict(message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorKind::Conflict, message)
     }
 
+    /// A business rule blocks the action: `409 GUARD_VIOLATION`.
     pub fn guard(message: impl Into<Cow<'static, str>>) -> Self {
         Self::new(ErrorKind::Guard, message)
     }
 
+    /// An unexpected failure: `500 INTERNAL`. `source` is logged, never shown to the client.
     pub fn internal(source: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> Self {
         Self {
             source: Some(source.into()),
@@ -102,6 +109,7 @@ pub enum StoreError {
     /// Updating this account would leave no enabled Administrator.
     #[error("at least one enabled Administrator must remain")]
     LastEnabledAdministrator,
+    /// Any other database or adapter failure.
     #[error(transparent)]
     Other(Box<dyn std::error::Error + Send + Sync>),
 }

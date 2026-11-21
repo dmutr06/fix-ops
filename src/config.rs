@@ -25,6 +25,11 @@ pub struct BootstrapAdmin {
 }
 
 impl Config {
+    /// Reads the variables listed in the README, applying their defaults.
+    ///
+    /// # Errors
+    ///
+    /// A missing `DATABASE_URL`, a malformed value, or only one of the two bootstrap variables.
     pub fn from_env() -> anyhow::Result<Self> {
         Ok(Self {
             database_url: std::env::var("DATABASE_URL").context("DATABASE_URL is not set")?,

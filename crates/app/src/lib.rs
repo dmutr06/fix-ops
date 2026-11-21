@@ -24,10 +24,12 @@ pub struct App<S> {
 }
 
 impl<S> App<S> {
+    /// Wraps the store adapter that implements the ports.
     pub fn new(store: S) -> Self {
         Self { store }
     }
 
+    /// The store adapter, for startup tasks and tests.
     pub fn store(&self) -> &S {
         &self.store
     }

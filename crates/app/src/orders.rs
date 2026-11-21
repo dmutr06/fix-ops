@@ -1,4 +1,9 @@
-//! Repair-order intake and reading (REQ-F-005).
+//! Repair orders: intake, lifecycle, settlement and corrections (REQ-F-005 to REQ-F-016,
+//! REQ-F-018).
+//!
+//! Every lifecycle use case loads the order, asks the domain for the new state and its audit
+//! changes, and saves both in one transaction. A rule violation is `409 GUARD_VIOLATION` and
+//! changes nothing.
 
 use fixops_domain::audit::FieldChange;
 use fixops_domain::client::LoyaltyTier;
@@ -60,6 +65,8 @@ pub trait OrderStore: Send + Sync {
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<RepairOrder, StoreError>> + Send;
 
+    /// Saves every field of `order` with its audit `changes` in one transaction, only while the
+    /// stored version still equals `order.version`; otherwise [`StoreError::Stale`].
     fn update_order(
         &self,
         actor: StaffId,
@@ -87,6 +94,7 @@ pub trait OrderStore: Send + Sync {
         changes: &[FieldChange],
     ) -> impl Future<Output = Result<(), StoreError>> + Send;
 
+    /// The order, or `None` if `id` is unknown.
     fn find_order(
         &self,
         id: OrderId,
@@ -125,6 +133,10 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(created.into())
     }
 
+    /// Corrects any field of an order as an Administrator (`correctRepairOrder`, REQ-F-018).
+    ///
+    /// The corrected order must still pass intake checks and lifecycle, payment and pricing guards;
+    /// settlement is recalculated only when its inputs change.
     pub async fn correct_order(
         &self,
         actor: Actor,
@@ -170,6 +182,8 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(OrderView { order, settlement })
     }
 
+    /// Starts or finishes diagnosis (`recordDiagnosis`): `Received` → `Diagnosing`, and saved
+    /// `findings` while diagnosing.
     pub async fn record_diagnosis(
         &self,
         actor: Actor,
@@ -187,6 +201,7 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(order.into())
     }
 
+    /// Records the estimate while `Diagnosing` with findings saved (`recordEstimate`).
     pub async fn record_estimate(
         &self,
         actor: Actor,
@@ -204,6 +219,7 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(order.into())
     }
 
+    /// Records the client's approval or decline of the estimate (`recordClientDecision`).
     pub async fn record_decision(
         &self,
         actor: Actor,
@@ -221,6 +237,9 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(order.into())
     }
 
+    /// Records incurred charges, the repair check, or a status change during repair
+    /// (`updateRepairWork`). A guard failure carries `current_status`, `guard` and
+    /// `requested_status` details.
     pub async fn update_repair_work(
         &self,
         actor: Actor,
@@ -248,6 +267,7 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(view)
     }
 
+    /// Records the payment of a `Ready` order (`recordPayment`).
     pub async fn record_payment(
         &self,
         actor: Actor,
@@ -266,6 +286,7 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(view)
     }
 
+    /// Records that the client collected the device (`recordPickup`).
     pub async fn record_pickup(
         &self,
         actor: Actor,
@@ -284,11 +305,16 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(view)
     }
 
+    /// Completes a `Ready` order whose full payment and pickup are recorded, and fixes its
+    /// settlement (`completeRepairOrder`).
     pub async fn complete_order(&self, actor: Actor, id: OrderId) -> AppResult<OrderView> {
         crate::authorize(actor, Action::CompleteRepairOrder)?;
         self.settle_order(actor, id, OrderStatus::Completed).await
     }
 
+    /// Cancels a `Received`, `Diagnosing` or `InProgress` order and fixes its settlement
+    /// (`cancelRepairOrder`). After saved findings and before repair, that is the $30 diagnostic
+    /// fee.
     pub async fn cancel_order(&self, actor: Actor, id: OrderId) -> AppResult<OrderView> {
         crate::authorize(actor, Action::CancelRepairOrder)?;
         self.settle_order(actor, id, OrderStatus::Cancelled).await
@@ -345,6 +371,7 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
         Ok(())
     }
 
+    /// One order with its current settlement (`getRepairOrder`).
     pub async fn get_order(&self, actor: Actor, id: OrderId) -> AppResult<OrderView> {
         crate::authorize(actor, Action::GetRepairOrder)?;
         let order = self.store.find_order(id).await?;
@@ -352,6 +379,7 @@ impl<S: OrderStore + ClientStore + DeviceStore + StaffStore> App<S> {
             .await
     }
 
+    /// Orders matching `filter`, each with its current settlement (`listRepairOrders`).
     pub async fn list_orders(
         &self,
         actor: Actor,

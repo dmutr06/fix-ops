@@ -25,6 +25,7 @@ pub enum OrderStatus {
 }
 
 impl OrderStatus {
+    /// Every status, in lifecycle order.
     pub const ALL: [Self; 6] = [
         Self::Received,
         Self::Diagnosing,
@@ -34,6 +35,7 @@ impl OrderStatus {
         Self::Cancelled,
     ];
 
+    /// The contract spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Received => "Received",
@@ -45,6 +47,7 @@ impl OrderStatus {
         }
     }
 
+    /// Parses the contract spelling; anything else is invalid `status`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         Self::ALL
             .into_iter()
@@ -93,6 +96,7 @@ impl fmt::Display for OrderStatus {
 pub struct TicketNumber(String);
 
 impl TicketNumber {
+    /// Trims `raw`; empty is invalid `ticket_number`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         required_text(
             "ticket_number",
@@ -102,6 +106,7 @@ impl TicketNumber {
         .map(Self)
     }
 
+    /// The trimmed ticket number.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -121,8 +126,10 @@ pub enum Decision {
 }
 
 impl Decision {
+    /// Both decisions.
     pub const ALL: [Self; 2] = [Self::Approved, Self::Declined];
 
+    /// The contract spelling.
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Approved => "Approved",
@@ -130,6 +137,7 @@ impl Decision {
         }
     }
 
+    /// Parses the contract spelling; anything else is invalid `decision`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         Self::ALL
             .into_iter()
@@ -152,6 +160,7 @@ impl fmt::Display for Decision {
 pub struct DiagnosticFindings(String);
 
 impl DiagnosticFindings {
+    /// Trims `raw`; empty is invalid `diagnostic_findings`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         required_text(
             "diagnostic_findings",
@@ -161,6 +170,7 @@ impl DiagnosticFindings {
         .map(Self)
     }
 
+    /// The trimmed findings.
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -226,8 +236,10 @@ pub enum RepairStage {
 }
 
 impl RepairStage {
+    /// Both stages.
     pub const ALL: [Self; 2] = [Self::InProgress, Self::Ready];
 
+    /// The order status this stage moves to.
     pub const fn status(self) -> OrderStatus {
         match self {
             Self::InProgress => OrderStatus::InProgress,
@@ -235,6 +247,7 @@ impl RepairStage {
         }
     }
 
+    /// Parses `InProgress` or `Ready`; anything else is invalid `status`.
     pub fn parse(raw: &str) -> Result<Self, InvalidField> {
         Self::ALL
             .into_iter()
@@ -274,6 +287,8 @@ pub struct OrderCorrection {
 }
 
 impl OrderCorrection {
+    /// The order with every supplied field replaced. Guards are checked afterwards by
+    /// [`RepairOrder::correct`].
     pub fn apply(self, current: &RepairOrder) -> RepairOrder {
         let mut order = current.clone();
         if let Some(value) = self.ticket_number {

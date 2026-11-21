@@ -10,6 +10,7 @@ pub struct InvalidField {
 }
 
 impl InvalidField {
+    /// `field` is the contract field name; `message` is shown to staff.
     pub const fn new(field: &'static str, message: &'static str) -> Self {
         Self { field, message }
     }
