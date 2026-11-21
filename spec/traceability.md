@@ -40,8 +40,8 @@ Test files are in `tests/` unless a crate path is given; `domain/` and `app/` ar
 
 | Requirement | Tests | Code | Docs |
 |---|---|---|---|
-| REQ-F-001 | `staff_access.rs`, `intake.rs` | `app/staff.rs`, `src/http/auth.rs` | UG [Sign in](../docs/user_guide.md#sign-in); ARCH [Sessions](../docs/architecture.md#sessions) |
-| REQ-F-002 | `permissions.rs`, `staff_access.rs`, `diagnosis.rs`, `settlement.rs`, `domain/staff.rs` | `domain/staff.rs`, `app/lib.rs` | UG [Who does what](../docs/user_guide.md#who-does-what); ARCH [Request flow](../docs/architecture.md#request-flow) |
+| REQ-F-001 | `staff_access.rs`, `intake.rs`, `web_api.rs` | `app/staff.rs`, `src/http/auth.rs` | UG [Sign in](../docs/user_guide.md#sign-in); ARCH [Sessions](../docs/architecture.md#sessions) |
+| REQ-F-002 | `permissions.rs`, `staff_access.rs`, `diagnosis.rs`, `settlement.rs`, `web_api.rs`, `domain/staff.rs` | `domain/staff.rs`, `app/lib.rs` | UG [Who does what](../docs/user_guide.md#who-does-what); ARCH [Request flow](../docs/architecture.md#request-flow) |
 | REQ-F-003 | `intake.rs`, `stale_updates.rs`, `domain/client.rs` | `app/clients.rs`, `domain/client.rs` | UG [Who does what](../docs/user_guide.md#who-does-what) |
 | REQ-F-004 | `intake.rs`, `stale_updates.rs`, `domain/device.rs` | `app/devices.rs`, `domain/device.rs` | UG [Who does what](../docs/user_guide.md#who-does-what) |
 | REQ-F-005 | `intake.rs`, `domain/order.rs` | `app/orders.rs`, `domain/order.rs` | UG [A repair, step by step](../docs/user_guide.md#a-repair-step-by-step); ARCH [Intake](../docs/architecture.md#intake) |
@@ -60,8 +60,11 @@ Test files are in `tests/` unless a crate path is given; `domain/` and `app/` ar
 | REQ-F-018 | `corrections.rs`, `domain/order.rs` | `app/orders.rs`, `domain/order.rs` | UG [Who does what](../docs/user_guide.md#who-does-what) |
 | REQ-F-019 | `staff_access.rs`, `domain/staff.rs` | `app/staff.rs`, `domain/staff.rs` | UG [Staff accounts](../docs/user_guide.md#staff-accounts-administrator) |
 | REQ-F-020 | `staff_access.rs` | `app/staff.rs`, `crates/infra/src/staff.rs` | UG [Staff accounts](../docs/user_guide.md#staff-accounts-administrator) |
-| REQ-NF-001 | `scripts/check-performance.py` | `crates/infra/migrations/20261109000001_intake.sql` | [Performance](../docs/performance.md) |
-| REQ-NF-002 | `permissions.rs`, `staff_access.rs` | `domain/staff.rs` | UG [Who does what](../docs/user_guide.md#who-does-what) |
+| REQ-F-021 | `web/e2e/repair.spec.ts` | `web/src/App.tsx` | UG [Web app](../docs/user_guide.md#web-app) |
+| REQ-F-022 | `web_api.rs`, `web/e2e/repair.spec.ts` | `src/http/sessions.rs`, `src/http/auth.rs` | UG [Web app](../docs/user_guide.md#web-app); ARCH [Sessions](../docs/architecture.md#sessions) |
+| REQ-F-023 | `web_api.rs`, `web/e2e/repair.spec.ts` | `app/orders.rs`, `src/http/params.rs` | UG [Web app](../docs/user_guide.md#web-app) |
+| REQ-NF-001 | `scripts/check-performance.py`, `web/e2e/repair.spec.ts` | `crates/infra/migrations/20261109000001_intake.sql` | [Performance](../docs/performance.md) |
+| REQ-NF-002 | `permissions.rs`, `staff_access.rs`, `web_api.rs` | `domain/staff.rs` | UG [Who does what](../docs/user_guide.md#who-does-what) |
 | REQ-NF-003 | `intake.rs`, `staff_access.rs`, `diagnosis.rs`, `corrections.rs`, `stale_updates.rs`, `domain/audit.rs` | `domain/audit.rs`, `crates/infra/src/audit.rs` | UG [Audit log](../docs/user_guide.md#audit-log); ARCH [Audit contract](../docs/architecture.md#audit-contract) |
 | REQ-NF-004 | `tests/recovery.sh` | `scripts/backup.sh`, `scripts/restore.sh` | [Recovery](../docs/recovery.md) |
 
