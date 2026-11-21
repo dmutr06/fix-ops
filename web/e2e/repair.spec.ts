@@ -125,7 +125,7 @@ test("BDD-025: three roles take an order from intake to Completed in the browser
     await step(
         "save findings",
         () => page.getByRole("button", { name: "Save findings" }).click(),
-        () => expect(page.getByText("Broken DC jack", { exact: true })).toBeVisible(),
+        () => expect(page.getByTestId("findings")).toHaveText("Broken DC jack"),
     );
     await page.getByLabel("Parts estimate ($)").fill("100.00");
     await page.getByLabel("Labor estimate ($)").fill("50.00");
