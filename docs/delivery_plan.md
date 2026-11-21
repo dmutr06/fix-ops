@@ -1,6 +1,6 @@
 # Delivery plan
 
-**Tracker:** [FixOps project](https://linear.app/fixops/project/fixops-965d39cb6a8a) (Linear, team FIX) · **Scope:** [SRS 1.0.3](../spec/srs.md) — 24 requirements, 21 BDD scenarios · **Status:** P1–P7 verified; all gates GO.
+**Tracker:** [FixOps project](https://linear.app/fixops/project/fixops-965d39cb6a8a) (Linear, team FIX) · **Scope:** [SRS 1.0.3](../spec/srs.md) — 24 requirements, 21 BDD scenarios · **Status:** P1–P7 verified; all gates GO; cycle closed at [FINAL-GATE](../logs/final_gate.md).
 
 The service uses axum, Tokio and PostgreSQL. Platform choices are in [stack](stack.md) and [architecture](architecture.md). All packages are implemented and verified; the order of work followed the dependencies below. The original schedule is retained as the planning baseline, not a current forecast.
 
@@ -30,6 +30,8 @@ Control tickets:
 | [FIX-49](https://linear.app/fixops/issue/FIX-49) | FINANCIAL-DATA-GATE: pricing, lifecycle, audit, performance, recovery verified | GO |
 | [FIX-50](https://linear.app/fixops/issue/FIX-50) | Human validation of the staff workflow | Done |
 | [FIX-51](https://linear.app/fixops/issue/FIX-51) | RELEASE-GATE | GO |
+| [FIX-58](https://linear.app/fixops/issue/FIX-58) | Documentation checked against the code | Done |
+| [FIX-59](https://linear.app/fixops/issue/FIX-59) | FINAL-GATE | GO |
 
 P1 defines the shared audit contract (atomic write + audit entry). P2–P5 tests check audit fields for each change as it is built; P6 completes coverage and adds corrections. A change without an audit entry is never accepted on the grounds that P6 comes later.
 
