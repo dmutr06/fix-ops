@@ -11,6 +11,7 @@ mod params;
 mod sessions;
 mod staff;
 mod trace;
+mod web;
 
 use std::sync::Arc;
 
@@ -51,14 +52,10 @@ pub fn router(state: AppState) -> Router {
     let router = Router::new()
         .route("/health", get(health))
         .nest("/api/v1", api)
-        .fallback(not_found);
+        .fallback(web::fallback);
     trace::layer(router).with_state(state)
 }
 
 async fn health() -> &'static str {
     "ok"
-}
-
-async fn not_found() -> ApiError {
-    fixops_app::AppError::not_found().into()
 }

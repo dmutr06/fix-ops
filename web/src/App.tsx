@@ -1,21 +1,40 @@
-import { Button } from "@/components/ui/button";
+import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import { Layout } from "@/components/layout";
+import { Toaster } from "@/components/ui/sonner";
+import { SessionGate, useSession } from "@/lib/session";
+import { ClientPage } from "@/pages/client";
+import { ClientsPage } from "@/pages/clients";
+import { OrderPage } from "@/pages/order";
+import { OrdersPage } from "@/pages/orders";
+import { QueuePage } from "@/pages/queue";
+import { SignInPage } from "@/pages/sign-in";
+import { StaffPage } from "@/pages/staff";
 
-export function App() {
+function Pages() {
+    const { staff } = useSession();
     return (
-        <div className="flex min-h-svh p-6">
-            <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-                <div>
-                    <h1 className="font-medium">Project ready!</h1>
-                    <p>You may now add components and start building.</p>
-                    <p>We&apos;ve already added the button component for you.</p>
-                    <Button className="mt-2">Button</Button>
-                </div>
-                <div className="font-mono text-xs text-muted-foreground">
-                    (Press <kbd>d</kbd> to toggle dark mode)
-                </div>
-            </div>
-        </div>
+        <Layout>
+            <Routes>
+                <Route path="/" element={<QueuePage />} />
+                <Route path="/orders" element={<OrdersPage />} />
+                <Route path="/orders/:orderId" element={<OrderPage />} />
+                <Route path="/clients" element={<ClientsPage />} />
+                <Route path="/clients/:clientId" element={<ClientPage />} />
+                {staff.role === "Administrator" && <Route path="/staff" element={<StaffPage />} />}
+                <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+        </Layout>
     );
 }
 
-export default App;
+/** The staff web app (REQ-F-021): sign-in, then the pages of the signed-in role. */
+export function App() {
+    return (
+        <BrowserRouter>
+            <SessionGate signIn={<SignInPage />}>
+                <Pages />
+            </SessionGate>
+            <Toaster />
+        </BrowserRouter>
+    );
+}
