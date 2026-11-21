@@ -525,7 +525,9 @@ export function OrderPage() {
                     {device.data ? `${device.data.device_type} ${device.data.serial_number}` : "…"}
                 </Detail>
                 <Detail label="Technician">{names.get(data.assigned_technician_id) ?? "…"}</Detail>
-                <Detail label="Findings">{data.diagnostic_findings ?? "—"}</Detail>
+                <Detail label="Findings" testId="findings">
+                    {data.diagnostic_findings ?? "—"}
+                </Detail>
                 <Detail label="Estimate" testId="estimate">
                     {data.estimate
                         ? `${money(data.estimate.parts_cents)} parts + ${money(data.estimate.labor_cents)} labor`
