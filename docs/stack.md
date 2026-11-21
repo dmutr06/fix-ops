@@ -27,6 +27,7 @@ How these fit together: [architecture](architecture.md). Versions are the latest
 | Components | [shadcn/ui](https://ui.shadcn.com) on Base UI, Tailwind CSS v4 | Accessible components copied into the project, themed with CSS variables, light and dark |
 | Data | TanStack Query, `openapi-fetch` with types generated from `openapi.yaml` | A contract change breaks the build instead of the screen |
 | Forms | React Hook Form and Zod with shadcn `Field` | Field errors before the request; the service's message after |
+| Motion | [Motion](https://motion.dev/docs/react) (`motion/react`): page fade-in, list and layout transitions, button press through Base UI's `render`; `reducedMotion="user"` | Changes are followed by eye instead of jumping; short enough to keep steps within 2 s |
 | Serving | `rust-embed`: `web/dist` inside the binary at `/` | One artifact; same origin, so the session cookie needs no CORS |
 
 ## Tooling
