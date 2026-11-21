@@ -20,6 +20,8 @@
 | Repair check | Technician's recorded confirmation that the repair is finished and checked. Required before `Ready`. |
 | Pickup record | Receptionist's confirmation that the client collected the device. |
 | Audit log | Record of each change: actor, time, record, field, previous value, and new value. |
+| Work queue | The orders a role should act on next, shown after sign-in. |
+| Session | A signed-in staff member's access, held by a token or browser cookie for 12 hours or until sign-out. |
 
 **Cost** has two meanings: *estimated cost* is a proposal; *incurred cost* is used parts and completed labor. Only incurred costs enter settlement.
 

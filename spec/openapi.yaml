@@ -1,10 +1,10 @@
 openapi: 3.0.3
 info:
   title: FixOps Workshop API
-  version: 1.0.2
+  version: 1.1.0
   description: >
     Internal REST API contract for the FixOps PC and electronics repair workshop
-    (SRS 1.0.2, ADD-001, ADD-002). Monetary amounts are represented in whole USD
+    (SRS 1.1.0, ADD-001 to ADD-004). Monetary amounts are represented in whole USD
     cents (`*_cents`).
   license:
     name: MIT
@@ -17,7 +17,7 @@ tags:
   - name: Sessions
     description: Staff authentication (REQ-F-001, REQ-F-019, REQ-NF-002)
   - name: Staff
-    description: Staff account management by Administrator (REQ-F-019, REQ-F-002)
+    description: Staff list for every role; account management by Administrator (REQ-F-019, REQ-F-002)
   - name: Clients
     description: Client records, search, and loyalty tiers (REQ-F-003, REQ-F-017, REQ-NF-001)
   - name: Devices
@@ -29,6 +29,7 @@ tags:
 
 security:
   - bearerAuth: []
+  - cookieAuth: []
 
 paths:
   /api/v1/sessions:
@@ -37,7 +38,7 @@ paths:
       operationId: createSession
       summary: Sign in with an active staff account
       security: []
-      x-requirements: [REQ-F-001, REQ-F-019, REQ-NF-002]
+      x-requirements: [REQ-F-001, REQ-F-019, REQ-F-022, REQ-NF-002]
       requestBody:
         required: true
         content:
@@ -53,6 +54,11 @@ paths:
       responses:
         '201':
           description: Signed-in staff session created
+          headers:
+            Set-Cookie:
+              description: "`fixops_session=<token>; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=43200` (ADD-004)"
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -93,16 +99,65 @@ paths:
                     details:
                       username: "disabled.user"
 
+  /api/v1/sessions/current:
+    get:
+      tags: [Sessions]
+      operationId: getCurrentSession
+      summary: The signed-in staff account
+      x-requirements: [REQ-F-001, REQ-F-022]
+      x-roles: [Receptionist, Technician, Administrator]
+      responses:
+        '200':
+          description: The account of the session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StaffAccount'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [Sessions]
+      operationId: deleteSession
+      summary: Sign out and end the session
+      x-requirements: [REQ-F-001, REQ-F-022]
+      x-roles: [Receptionist, Technician, Administrator]
+      responses:
+        '204':
+          description: Session ended; the cookie is cleared
+          headers:
+            Set-Cookie:
+              description: "`fixops_session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0`"
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
   /api/v1/staff:
     get:
       tags: [Staff]
       operationId: listStaffAccounts
       summary: List staff accounts
-      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-019, REQ-NF-002]
-      x-roles: [Administrator]
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-019, REQ-F-023, REQ-NF-002]
+      x-roles: [Receptionist, Technician, Administrator]
+      parameters:
+        - name: role
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/Role'
+        - name: enabled
+          in: query
+          required: false
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200':
           description: List of staff accounts
+          headers:
+            X-Total-Count:
+              $ref: '#/components/headers/TotalCount'
           content:
             application/json:
               schema:
@@ -234,7 +289,7 @@ paths:
       tags: [Clients]
       operationId: listClients
       summary: Search or list client records
-      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-003, REQ-NF-001, REQ-NF-002]
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-003, REQ-F-023, REQ-NF-001, REQ-NF-002]
       x-roles: [Receptionist, Technician, Administrator]
       parameters:
         - name: q
@@ -244,9 +299,14 @@ paths:
           schema:
             type: string
             minLength: 1
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200':
           description: Matching client records
+          headers:
+            X-Total-Count:
+              $ref: '#/components/headers/TotalCount'
           content:
             application/json:
               schema:
@@ -438,7 +498,7 @@ paths:
       tags: [Devices]
       operationId: listDevices
       summary: Search or list device records
-      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-004, REQ-NF-001, REQ-NF-002]
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-004, REQ-F-023, REQ-NF-001, REQ-NF-002]
       x-roles: [Receptionist, Technician, Administrator]
       parameters:
         - name: client_id
@@ -454,9 +514,14 @@ paths:
           schema:
             type: string
             minLength: 1
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200':
           description: Matching device records
+          headers:
+            X-Total-Count:
+              $ref: '#/components/headers/TotalCount'
           content:
             application/json:
               schema:
@@ -606,7 +671,7 @@ paths:
       tags: [RepairOrders]
       operationId: listRepairOrders
       summary: List or filter repair orders
-      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-005, REQ-F-015, REQ-F-016, REQ-NF-001, REQ-NF-002]
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-005, REQ-F-015, REQ-F-016, REQ-F-023, REQ-NF-001, REQ-NF-002]
       x-roles: [Receptionist, Technician, Administrator]
       parameters:
         - name: status
@@ -626,9 +691,32 @@ paths:
           schema:
             type: string
             minLength: 1
+        - name: assigned_technician_id
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - name: open
+          in: query
+          required: false
+          description: "`true`: only orders that are not Completed or Cancelled"
+          schema:
+            type: boolean
+        - name: awaiting_decision
+          in: query
+          required: false
+          description: "`true`: only orders with an estimate and no client decision"
+          schema:
+            type: boolean
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200':
           description: Matching repair orders
+          headers:
+            X-Total-Count:
+              $ref: '#/components/headers/TotalCount'
           content:
             application/json:
               schema:
@@ -1454,7 +1542,7 @@ paths:
       tags: [AuditLogs]
       operationId: listAuditLogs
       summary: Retrieve audit log entries filtered by record type or record ID
-      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-018, REQ-NF-002, REQ-NF-003]
+      x-requirements: [REQ-F-001, REQ-F-002, REQ-F-018, REQ-F-023, REQ-NF-002, REQ-NF-003]
       x-roles: [Receptionist, Technician, Administrator]
       parameters:
         - name: record_type
@@ -1468,9 +1556,14 @@ paths:
           schema:
             type: integer
             minimum: 1
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
       responses:
         '200':
           description: Chronological audit entries
+          headers:
+            X-Total-Count:
+              $ref: '#/components/headers/TotalCount'
           content:
             application/json:
               schema:
@@ -1500,8 +1593,38 @@ components:
       type: http
       scheme: bearer
       description: Individual staff session token issued by POST /sessions (REQ-F-001, REQ-NF-002)
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: fixops_session
+      description: The same session in an HttpOnly cookie set by POST /sessions, for the browser interface (REQ-F-022)
+
+  headers:
+    TotalCount:
+      description: Number of matching records before paging (REQ-F-023)
+      schema:
+        type: integer
+        minimum: 0
 
   parameters:
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size; without it every match is returned (REQ-F-023)
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: Matches to skip before the page (REQ-F-023)
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
     StaffId:
       name: staffId
       in: path
